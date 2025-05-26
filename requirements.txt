@@ -1,10 +1,8 @@
-# local package
--e .
+# Core dependencies
+requests>=2.31.0  # For ERCOT API access
+tqdm>=4.66.0     # For progress bars
+pandas>=2.0.0    # For data processing
+python-dotenv>=1.0.0  # For loading environment variables
 
-# external requirements
-click
-Sphinx
-coverage
-awscli
-flake8
-python-dotenv>=0.5.1
+# Optional development dependencies
+flake8          # For code linting
