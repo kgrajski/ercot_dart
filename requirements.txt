@@ -3,6 +3,7 @@ requests>=2.31.0  # For ERCOT API access
 tqdm>=4.66.0     # For progress bars
 pandas>=2.0.0    # For data processing
 python-dotenv>=1.0.0  # For loading environment variables
+plotly>=6.1.1    # For data visualization
 
 # Optional development dependencies
 flake8          # For code linting

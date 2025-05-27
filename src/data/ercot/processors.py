@@ -1,152 +1,162 @@
 """Data processing module for ERCOT API responses."""
 
-from typing import Dict, Optional
-from pathlib import Path
-import pandas as pd
+import os
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+import pandas as pd
+import json
+from tqdm import tqdm
 
 
 class ERCOTProcessor:
-    """Handles data processing and file operations for ERCOT data."""
+    """Processor for ERCOT API response data."""
     
     def __init__(self, output_dir: Optional[str] = None):
-        """Initialize processor with optional output directory.
+        """Initialize processor.
         
         Args:
-            output_dir (str, optional): Directory path where CSV files will be saved.
-                                      If None, no CSV files will be saved.
-                                      If provided, directory will be created if it doesn't exist.
+            output_dir (str, optional): Directory where CSV files will be saved.
+                                      If None, CSV files will not be saved.
         """
-        self.output_dir = None
-        if output_dir:
-            # Convert to Path object for easier manipulation
-            self.output_dir = Path(output_dir)
-            # Create directory if it doesn't exist
+        self.output_dir = Path(output_dir) if output_dir else None
+        if self.output_dir:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-    
-    def json_to_df(self, json_response: Dict) -> pd.DataFrame:
-        """Convert ERCOT API JSON response to a pandas DataFrame with proper data types.
+            
+    def process_response(self, response) -> pd.DataFrame:
+        """Process a single API response.
         
         Args:
-            json_response (dict): JSON response from ERCOT API containing _meta, report, fields, and data
+            response: API response object
             
         Returns:
-            pandas.DataFrame: DataFrame with proper column types based on fields metadata
+            pd.DataFrame: Processed data
             
         Raises:
-            ValueError: If JSON structure is invalid or missing required fields
+            ValueError: If response is missing required fields
         """
-        # Validate JSON structure
-        required_fields = ['_meta', 'fields', 'data']
-        if not all(field in json_response for field in required_fields):
-            raise ValueError(f"JSON response missing required fields: {required_fields}")
+        # Parse JSON response
+        json_response = response.json()
         
-        # Get the data array and fields metadata
-        data = json_response['data']
-        fields = json_response['fields']
+        # Validate response structure
+        required_fields = ["_meta", "fields", "data"]
+        missing = [f for f in required_fields if f not in json_response]
+        if missing:
+            raise ValueError(f"Response missing required fields: {', '.join(missing)}")
+            
+        # Extract data and field definitions
+        data = json_response["data"]
+        fields = json_response["fields"]
         
-        # If no data, return empty DataFrame with correct columns
+        # Convert to DataFrame
         if not data:
-            columns = [field['name'] for field in fields]
+            # If no data, create empty DataFrame with correct columns
+            columns = [field["name"] for field in fields]
             return pd.DataFrame(columns=columns)
-        
-        # Create a list of column names in order
-        columns = [field['name'] for field in fields]
-        
-        # Create DataFrame with proper column names
+            
+        # Create DataFrame from data
+        columns = [field["name"] for field in fields]
         df = pd.DataFrame(data, columns=columns)
         
-        # Apply data types based on fields metadata
+        # Apply data types based on field definitions
         for field in fields:
-            column_name = field['name']
-            data_type = field.get('dataType', '').upper()
-            try:
-                if data_type == 'BOOLEAN':
-                    df[column_name] = df[column_name].astype('boolean')
-                elif data_type in ['INTEGER', 'INT']:
-                    df[column_name] = pd.to_numeric(df[column_name], errors='coerce').astype('Int64')  # nullable integer
-                elif data_type in ['DECIMAL', 'FLOAT', 'DOUBLE']:
-                    df[column_name] = pd.to_numeric(df[column_name], errors='coerce')
-                elif data_type in ['DATE', 'DATETIME']:
-                    df[column_name] = pd.to_datetime(df[column_name], errors='coerce')
-                elif data_type in ['VARCHAR', 'STRING']:  # Added VARCHAR to handle that type
-                    df[column_name] = df[column_name].astype('string')
-            except Exception as e:
-                print(f"Warning: Could not convert column {column_name} to {data_type}: {str(e)}")
-        
+            column_name = field["name"]
+            data_type = field.get("dataType", "").upper()
+            
+            if data_type == "BOOLEAN":
+                df[column_name] = df[column_name].astype("boolean")
+            elif data_type in ["INTEGER", "INT"]:
+                df[column_name] = pd.to_numeric(df[column_name], errors="coerce").astype("Int64")  # nullable integer
+            elif data_type in ["DECIMAL", "FLOAT", "DOUBLE"]:
+                df[column_name] = pd.to_numeric(df[column_name], errors="coerce")
+            elif data_type in ["DATE", "DATETIME"]:
+                df[column_name] = pd.to_datetime(df[column_name], errors="coerce")
+            elif data_type in ["VARCHAR", "STRING"]:  # Added VARCHAR to handle that type
+                df[column_name] = df[column_name].astype("string")
+                
         return df
     
-    def save_to_csv(self, df: pd.DataFrame, endpoint_key: str, params: Optional[Dict] = None) -> Optional[Path]:
-        """Save DataFrame to CSV in the output directory with a standardized name.
+    def process_data(self, data: List[Dict]) -> pd.DataFrame:
+        """Process a list of data records.
         
         Args:
-            df (pd.DataFrame): DataFrame to save
-            endpoint_key (str): Key from ENDPOINTS dictionary used to generate data
-            params (dict, optional): Parameters used in the API call, used in filename
+            data (List[Dict]): List of data records
             
         Returns:
-            Path: Path to saved file if output_dir is set, None otherwise
-            
-        Example filename: load_forecast_2024-03-20_150130.csv
-                         (endpoint_key_YYYY-MM-DD_HHMMSS.csv)
+            pd.DataFrame: Processed data
         """
-        if not self.output_dir:
-            return None
+        if not data:
+            return pd.DataFrame()
             
-        # Generate timestamp for filename
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        # Create DataFrame
+        df = pd.DataFrame(data)
         
-        # Create filename
-        filename = f"{endpoint_key}_{timestamp}.csv"
-        
-        # Create full path
-        file_path = self.output_dir / filename
-        
-        # Save DataFrame to CSV
-        df.to_csv(file_path, index=False)
-        
-        return file_path
+        # Convert date columns
+        date_columns = [col for col in df.columns if "date" in col.lower()]
+        for col in date_columns:
+            df[col] = pd.to_datetime(df[col], errors="ignore")
+            
+        return df
     
-    def verify_data(self, df: pd.DataFrame, endpoint_key: str, csv_file: Optional[Path] = None) -> None:
-        """Verify the DataFrame contents and output verification results.
+    def save_to_csv(self, df: pd.DataFrame, endpoint_key: str, params: Dict) -> Path:
+        """Save DataFrame to CSV file.
         
         Args:
-            df (pd.DataFrame): DataFrame to verify
-            endpoint_key (str): Key of the endpoint that generated this data
-            csv_file (Path, optional): Path to the CSV file if saved
+            df (pd.DataFrame): Data to save
+            endpoint_key (str): Key identifying the endpoint
+            params (Dict): Query parameters used to get the data
+            
+        Returns:
+            Path: Path to saved CSV file
             
         Raises:
-            AssertionError: If any verification checks fail
+            ValueError: If output_dir is not set
         """
-        # Basic DataFrame verification
-        assert isinstance(df, pd.DataFrame), "Result should be a pandas DataFrame"
-        assert not df.empty, "DataFrame should not be empty"
-        
-        # Print data summary
-        print("\nData Summary:")
-        print(f"Total records: {len(df)}")
-        print("\nColumns:")
-        for col in df.columns:
-            print(f"- {col}")
-        
-        # Print first few rows
-        print("\nFirst few rows:")
-        print(df.head())
-        
-        # If CSV was saved, verify it
-        if csv_file and self.output_dir:
-            # Verify file exists
-            assert csv_file.exists(), "CSV file should exist"
-            assert csv_file.name.startswith(f"{endpoint_key}_"), "CSV filename should start with endpoint key"
-            assert csv_file.suffix == ".csv", "File should have .csv extension"
+        if not self.output_dir:
+            raise ValueError("output_dir must be set to save CSV files")
             
-            # Verify CSV contents match DataFrame
-            df_from_csv = pd.read_csv(csv_file)
-            assert df.shape == df_from_csv.shape, "CSV data should match original DataFrame"
-            print(f"\nCSV file successfully created and verified at: {csv_file}")
+        # Create filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{endpoint_key}_{timestamp}.csv"
+        filepath = self.output_dir / filename
         
-        # Print datetime-specific information if available
-        if 'PostedDateTime' in df.columns:
-            posted_times = pd.to_datetime(df['PostedDateTime'])
-            print("\nUnique posted datetimes in the data:")
-            print(sorted(posted_times.dt.strftime('%Y-%m-%d %H:%M:%S').unique())) 
+        # Save DataFrame
+        df.to_csv(filepath, index=False)
+        
+        # Save parameters to JSON file
+        params_file = filepath.with_suffix(".json")
+        with open(params_file, "w") as f:
+            json.dump(params, f, indent=2)
+            
+        return filepath
+    
+    def verify_data(self, df: pd.DataFrame, endpoint_key: str, csv_file: Optional[Path] = None):
+        """Verify and report on the processed data.
+        
+        Args:
+            df (pd.DataFrame): Processed data
+            endpoint_key (str): Key identifying the endpoint
+            csv_file (Path, optional): Path to saved CSV file
+        """
+        # Print basic information
+        print("\nData Summary:")
+        print(f"Endpoint: {endpoint_key}")
+        print(f"Records: {len(df)}")
+        print(f"Columns: {len(df.columns)}")
+        
+        if csv_file:
+            print(f"\nData saved to: {csv_file}")
+            
+        # Check for missing values
+        if df.isna().any().any():
+            print("\nWarning: Missing values detected in columns:")
+            missing = df.isna().sum()
+            missing = missing[missing > 0]
+            for col, count in missing.items():
+                print(f"  {col}: {count} missing values")
+                
+        # Check PostedDateTime values if present
+        if "PostedDateTime" in df.columns:
+            posted_times = pd.to_datetime(df["PostedDateTime"])
+            print("\nPostedDateTime range:")
+            print(sorted(posted_times.dt.strftime("%Y-%m-%d %H:%M:%S").unique()))

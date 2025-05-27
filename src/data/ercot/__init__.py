@@ -8,7 +8,7 @@ It handles authentication, rate limiting, and data retrieval for various ERCOT e
 from .auth import ERCOTAuth
 from .api import ERCOTApi
 from .processors import ERCOTProcessor
-from .clients.base import ERCOTBaseClient
+from .base import ERCOTBaseClient
 from .clients.load import LoadForecastClient
 from .clients.solar import SolarGenerationClient
 

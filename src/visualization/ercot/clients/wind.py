@@ -1,0 +1,78 @@
+"""Wind generation forecast visualization client."""
+
+from typing import Optional
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from ..base import ERCOTBaseViz
+
+
+class WindGenerationViz(ERCOTBaseViz):
+    """Client for visualizing ERCOT wind generation forecast data."""
+    
+    ENDPOINT_KEY = "wind_forecast"
+    WEATHER_ZONES = ["coast", "east", "farWest", "north", "northCentral", 
+                     "southCentral", "southern", "west"]
+    
+    def plot_wind_forecast(self):
+        """Create daily wind generation forecast by weather zone visualization for each posted date."""
+        # Get data
+        df = self.get_data(self.ENDPOINT_KEY)
+
+        # We want to subset the data to use only the rows where the inUse column is TRUE
+        df = df[df["inUseFlag"] == True]
+        print(f"Found {len(df)} rows for this set of posted dates")
+        
+        # Convert postedDatetime to datetime and extract the date component
+        df["posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
+        
+        # Get unique posted dates
+        posted_dates = sorted(df["posted_date"].unique())
+        print(f"\nFound {len(posted_dates)} unique posted dates")
+        
+        # Process each posted date
+        for posted_date in posted_dates:
+            print(f"\nProcessing forecast posted on {posted_date}")
+            
+            # Filter data for this posted date
+            df_posted = df[df["posted_date"] == posted_date]
+            
+            # Convert deliveryDate and hourEnding to datetime using base class utility
+            df_posted["datetime"] = df_posted.apply(
+                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
+                axis=1
+            )
+            
+            # Melt the weather zone columns into a single column
+            df_melted = pd.melt(
+                df_posted,
+                id_vars=["datetime"],
+                value_vars=self.WEATHER_ZONES,
+                var_name="WeatherZone",
+                value_name="WindGeneration"
+            )
+            
+            # Sort by datetime
+            df_melted = df_melted.sort_values("datetime")
+            
+            # Create plot
+            fig = px.line(df_melted, 
+                         x="datetime", 
+                         y="WindGeneration",
+                         color="WeatherZone",
+                         title=f"Wind Generation Forecast by Weather Zone (Posted {posted_date})")
+            
+            # Customize layout
+            fig.update_layout(
+                xaxis_title="Time",
+                yaxis_title="Wind Generation (MW)",
+                legend_title="Weather Zone"
+            )
+            
+            # Save plot with posted date in filename
+            plot_name = f"daily_forecast_{posted_date}"
+            self.save_plot(fig, plot_name, self.ENDPOINT_KEY)
+    
+    def generate_plots(self):
+        """Generate all plots for wind generation forecast data."""
+        self.plot_wind_forecast() 

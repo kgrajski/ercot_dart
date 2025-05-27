@@ -5,23 +5,26 @@ import pandas as pd
 from datetime import datetime
 import time
 from tqdm import tqdm
-from ..auth import ERCOTAuth
-from ..api import ERCOTApi
-from ..processors import ERCOTProcessor
+from .auth import ERCOTAuth
+from .api import ERCOTApi
+from .processors import ERCOTProcessor
+from .database import DatabaseProcessor
 
 
 class ERCOTBaseClient:
     """Base class for ERCOT API clients."""
     
-    def __init__(self, output_dir: Optional[str] = None):
-        """Initialize client with authentication, API, and processor handlers.
+    def __init__(self, output_dir: Optional[str] = None, db_path: Optional[str] = None):
+        """Initialize client with authentication, API, processor, and database handlers.
         
         Args:
             output_dir (str, optional): Directory path where CSV files will be saved
+            db_path (str, optional): Path to SQLite database file
         """
         self.auth = ERCOTAuth()
         self.api = ERCOTApi(self.auth)
         self.processor = ERCOTProcessor(output_dir)
+        self.db_processor = DatabaseProcessor(db_path)
     
     def estimate_download_time(self, total_pages: int) -> str:
         """Calculate and format the estimated download time based on number of pages and rate limit.
@@ -236,7 +239,24 @@ class ERCOTBaseClient:
             tqdm.write("Saving to CSV...")
             csv_file = self.processor.save_to_csv(df, endpoint_key, params)
         
+        # Save to database
+        if self.db_processor:
+            tqdm.write("Saving to database...")
+            self.save_to_database(df, endpoint_key)
+        
         # Verify and report on the data
         self.processor.verify_data(df, endpoint_key, csv_file)
             
-        return df 
+        return df
+    
+    def save_to_database(self, df: pd.DataFrame, endpoint_key: str):
+        """Save data to database with client-specific handling.
+        This method can be overridden by subclasses to provide custom
+        data preparation before saving to database.
+        
+        Args:
+            df (pd.DataFrame): DataFrame to save
+            endpoint_key (str): Key identifying the endpoint
+        """
+        if self.db_processor:
+            self.db_processor.save_to_database(df, endpoint_key) 
