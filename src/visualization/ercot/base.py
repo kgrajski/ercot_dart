@@ -25,14 +25,19 @@ class ERCOTBaseViz:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
     @staticmethod
-    def combine_date_hour(date: str, hour_ending: str) -> pd.Timestamp:
+    def combine_date_hour(date: str, hour_ending: str | pd.Int64Dtype | int) -> pd.Timestamp:
         """Combine ERCOT delivery date and hour ending into a timestamp.
         
-        Handles the special case of "24:00" by converting it to "00:00" of the next day.
+        Handles multiple hour_ending formats:
+        - String format ("HH:MM" or "HH:MM:SS")
+        - Integer format (Int64 or int, 1-24)
+        Handles the special case of "24:00" or "24:00:00" or 24 by converting it to "00:00" of the next day.
         
         Args:
             date (str): Delivery date in format "YYYY-MM-DD"
-            hour_ending (str): Hour ending in format "HH:MM" (24-hour clock)
+            hour_ending (str | pd.Int64Dtype | int): Hour ending in either:
+                - String format "HH:MM" or "HH:MM:SS" (24-hour clock)
+                - Integer format (1-24)
             
         Returns:
             pd.Timestamp: Combined datetime
@@ -40,18 +45,38 @@ class ERCOTBaseViz:
         Example:
             >>> combine_date_hour("2025-06-03", "24:00")
             Timestamp('2025-06-04 00:00:00')
+            >>> combine_date_hour("2025-06-03", "24:00:00")
+            Timestamp('2025-06-04 00:00:00')
+            >>> combine_date_hour("2025-06-03", 24)
+            Timestamp('2025-06-04 00:00:00')
             >>> combine_date_hour("2025-06-03", "14:00")
             Timestamp('2025-06-03 14:00:00')
+            >>> combine_date_hour("2025-06-03", 14)
+            Timestamp('2025-06-03 14:00:00')
         """
-        # Handle special case of 24:00 before parsing
-        if hour_ending == "24:00":
-            # Parse the date first
-            base_dt = pd.to_datetime(date)
-            # Add one day and set time to 00:00
-            return base_dt + timedelta(days=1)
+        # Convert hour_ending to string format if it's an integer type
+        if isinstance(hour_ending, (int, pd.Int64Dtype)):
+            # Handle hour 24 case for integer input
+            if hour_ending == 24:
+                base_dt = pd.to_datetime(date)
+                return base_dt + timedelta(days=1)
+            hour_ending = f"{int(hour_ending):02d}:00"
+        elif isinstance(hour_ending, str):
+            # Handle hour 24 case for string input ("24:00" or "24:00:00")
+            if hour_ending.startswith("24:"):
+                base_dt = pd.to_datetime(date)
+                return base_dt + timedelta(days=1)
+            # If we have "HH:MM:SS" format, strip off the seconds
+            if len(hour_ending.split(":")) == 3:
+                hour_ending = ":".join(hour_ending.split(":")[:2])
         else:
-            # For normal hours, parse directly
-            return pd.to_datetime(f"{date} {hour_ending}")
+            # If we get here, we have an unexpected type
+            print(f"Warning: Unexpected hour_ending type: {type(hour_ending)}. Value: {hour_ending}")
+            # Try to convert to string and proceed
+            hour_ending = str(hour_ending)
+            
+        # For normal hours, parse directly
+        return pd.to_datetime(f"{date} {hour_ending}")
         
     def print_column_types(self, df: pd.DataFrame) -> None:
         """Print a formatted table of column names and their data types.
@@ -126,16 +151,16 @@ class ERCOTBaseViz:
             
         return df
     
-    def save_plot(self, fig: go.Figure, plot_name: str, endpoint_key: str):
+    def save_plot(self, fig: go.Figure, date: str, endpoint_key: str):
         """Save plotly figure as HTML file.
         
         Args:
             fig (go.Figure): Plotly figure to save
-            plot_name (str): Name of the specific plot type (e.g., "daily_forecast")
+            date (str): The date to use in the filename (posted_date or delivery_date)
             endpoint_key (str): The endpoint identifier
         """
-        # Create filename with endpoint and plot name
-        filename = f"{endpoint_key}_{plot_name}.html"
+        # Create filename with endpoint and date
+        filename = f"{endpoint_key}_{date}.html"
             
         # Create full path
         filepath = self.output_dir / filename

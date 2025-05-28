@@ -1,4 +1,8 @@
-"""Load forecast visualization client."""
+"""Load forecast visualization client.
+
+See: https://www.ercot.com/mp/data-products/data-product-details?id=np3-565-cd
+
+"""
 
 from typing import Optional
 import pandas as pd
@@ -77,9 +81,8 @@ class LoadForecastViz(ERCOTBaseViz):
                 legend_title="Weather Zone"
             )
             
-            # Save plot with posted date in filename
-            plot_name = f"daily_forecast_{posted_date}"
-            self.save_plot(fig, plot_name, self.ENDPOINT_KEY)
+            # Save plot
+            self.save_plot(fig, posted_date, self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for load forecast data."""

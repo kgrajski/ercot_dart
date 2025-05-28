@@ -4,6 +4,9 @@ import os
 import time
 from ercot.clients.load import LoadForecastViz
 from ercot.clients.solar import SolarGenerationViz
+from ercot.clients.wind import WindGenerationViz
+from ercot.clients.dam_lambda import DAMSystemLambdaViz
+from ercot.clients.dam_spp import DAMSettlementPointPricesViz
 
 def main():
     """Main function for visualizing raw ERCOT data."""
@@ -33,6 +36,21 @@ def main():
     print("\nGenerating solar forecast visualizations...")
     solar_viz = SolarGenerationViz(data_dir=data_dir, output_dir=output_dir)
     solar_viz.generate_plots()
+
+    # Create wind forecast visualizer and generate plots
+    print("\nGenerating wind forecast visualizations...")
+    wind_viz = WindGenerationViz(data_dir=data_dir, output_dir=output_dir)
+    wind_viz.generate_plots()
+
+    # Create DAM System Lambda visualizer and generate plots
+    print("\nGenerating DAM System Lambda visualizations...")
+    dam_lambda_viz = DAMSystemLambdaViz(data_dir=data_dir, output_dir=output_dir)
+    dam_lambda_viz.generate_plots()
+
+    # Create DAM Settlement Point Prices visualizer and generate plots
+    print("\nGenerating DAM Settlement Point Prices visualizations...")
+    dam_spp_viz = DAMSettlementPointPricesViz(data_dir=data_dir, output_dir=output_dir)
+    dam_spp_viz.generate_plots()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

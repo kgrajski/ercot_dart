@@ -8,24 +8,57 @@ from ..base import ERCOTBaseViz
 
 
 class WindGenerationViz(ERCOTBaseViz):
-    """Client for visualizing ERCOT wind generation forecast data."""
+    """
+    Client for visualizing ERCOT wind generation forecast data.
+
+    Note:
+    See: https://www.ercot.com/mp/data-products/data-product-details?id=np4-742-cd
+
+    STWPF = "Short Term Wind Power Forecast"
+    WGRPP = "Wind Generation Resource Power Potential"
+    HSL = "High Sustained Limit"
+    COPHSL = "Current Operating Plan High Sustained Limit"
+
+    """
     
-    ENDPOINT_KEY = "wind_forecast"
-    WEATHER_ZONES = ["coast", "east", "farWest", "north", "northCentral", 
-                     "southCentral", "southern", "west"]
+    ENDPOINT_KEY = "wind_power_gen"
+    GEOGRAPHICAL_ZONES = sorted([
+        "COPHSLCoastal",
+        "COPHSLNorth",
+        "COPHSLPanhandle",
+        "COPHSLSouth",
+        "COPHSLSystemWide",
+        "COPHSLWest",
+        "genCoastal",
+        "genNorth",
+        "genPanhandle",
+        "genSouth",
+        "genSystemWide",
+        "genWest",
+        "HSLSystemWide",
+        "STWPFCoastal",
+        "STWPFNorth",
+        "STWPFPanhandle",
+        "STWPFSouth",
+        "STWPFSystemWide",
+        "STWPFWest",
+        "WGRPPCoastal",
+        "WGRPPNorth",
+        "WGRPPPanhandle",
+        "WGRPPSouth",
+        "WGRPPSystemWide",
+        "WGRPPWest",
+    ])
+
     
     def plot_wind_forecast(self):
-        """Create daily wind generation forecast by weather zone visualization for each posted date."""
+        """Create daily wind generation forecast by geo zone visualization for each posted date."""
         # Get data
         df = self.get_data(self.ENDPOINT_KEY)
-
-        # We want to subset the data to use only the rows where the inUse column is TRUE
-        df = df[df["inUseFlag"] == True]
-        print(f"Found {len(df)} rows for this set of posted dates")
         
         # Convert postedDatetime to datetime and extract the date component
         df["posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
-        
+
         # Get unique posted dates
         posted_dates = sorted(df["posted_date"].unique())
         print(f"\nFound {len(posted_dates)} unique posted dates")
@@ -47,31 +80,35 @@ class WindGenerationViz(ERCOTBaseViz):
             df_melted = pd.melt(
                 df_posted,
                 id_vars=["datetime"],
-                value_vars=self.WEATHER_ZONES,
-                var_name="WeatherZone",
+                value_vars=self.GEOGRAPHICAL_ZONES,
+                var_name="GeoZone_Type",
                 value_name="WindGeneration"
             )
             
-            # Sort by datetime
-            df_melted = df_melted.sort_values("datetime")
+            # Sort by datetime first, then by GeoZone_Type to maintain the order
+            df_melted = df_melted.sort_values(["datetime", "GeoZone_Type"])
+            
+            # Save melted DataFrame to CSV for debugging
+            csv_path = self.output_dir / f"df_melted_{posted_date}.csv"
+            df_melted.to_csv(csv_path, index=False)
+            print(f"Saved melted DataFrame to: {csv_path}")
             
             # Create plot
             fig = px.line(df_melted, 
                          x="datetime", 
                          y="WindGeneration",
-                         color="WeatherZone",
-                         title=f"Wind Generation Forecast by Weather Zone (Posted {posted_date})")
+                         color="GeoZone_Type",
+                         title=f"Wind Generation Forecast by Geo Zone and Type (Posted {posted_date})")
             
             # Customize layout
             fig.update_layout(
                 xaxis_title="Time",
                 yaxis_title="Wind Generation (MW)",
-                legend_title="Weather Zone"
+                legend_title="GeoZone Type"
             )
             
-            # Save plot with posted date in filename
-            plot_name = f"daily_forecast_{posted_date}"
-            self.save_plot(fig, plot_name, self.ENDPOINT_KEY)
+            # Save plot
+            self.save_plot(fig, posted_date, self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for wind generation forecast data."""

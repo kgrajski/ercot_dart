@@ -18,6 +18,8 @@ class SolarGenerationViz(ERCOTBaseViz):
     Current Operating Plans (COPs)
     See: https://www.ercot.com/files/docs/2022/05/11/PV_Forecast_Update_Workshop_v3_1.pptx
 
+    See: https://www.ercot.com/mp/data-products/data-product-details?id=NP4-745-CD
+
     """
     
     ENDPOINT_KEY = "solar_power_gen"
@@ -62,9 +64,6 @@ class SolarGenerationViz(ERCOTBaseViz):
         # Convert postedDatetime to datetime and extract the date component
         df["posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
 
-        # Convert the hourEnding column to a datetime object from Int64 type
-        df["hourEnding_datetime"] = pd.to_datetime(df["hourEnding"], unit="h")
-        
         # Get unique posted dates
         posted_dates = sorted(df["posted_date"].unique())
         print(f"\nFound {len(posted_dates)} unique posted dates")
@@ -78,7 +77,7 @@ class SolarGenerationViz(ERCOTBaseViz):
             
             # Convert deliveryDate and hourEnding to datetime using base class utility
             df_posted["datetime"] = df_posted.apply(
-                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding_datetime"]),
+                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
                 axis=1
             )
             
@@ -113,9 +112,8 @@ class SolarGenerationViz(ERCOTBaseViz):
                 legend_title="GeoZone Type"
             )
             
-            # Save plot with posted date in filename
-            plot_name = f"daily_forecast_{posted_date}"
-            self.save_plot(fig, plot_name, self.ENDPOINT_KEY)
+            # Save plot
+            self.save_plot(fig, posted_date, self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for solar generation forecast data."""
