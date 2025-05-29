@@ -1,11 +1,12 @@
 """Script for fetching raw ERCOT data from public API endpoints."""
 
 from datetime import datetime, timedelta
-from ercot.clients.load import LoadForecastClient
-from ercot.clients.solar import SolarGenerationClient
-from ercot.clients.wind import WindGenerationClient
-from ercot.clients.dam_spp import DAMSettlementPointPricesClient
-from ercot.clients.dam_lambda import DAMSystemLambdaClient
+from data.ercot.clients.load import LoadForecastClient
+from data.ercot.clients.solar import SolarGenerationClient
+from data.ercot.clients.wind import WindGenerationClient
+from data.ercot.clients.dam_spp import DAMSettlementPointPricesClient
+from data.ercot.clients.dam_lambda import DAMSystemLambdaClient
+from data.ercot.clients.rt_spp import RTSettlementPointPricesClient
 
 import os
 import time
@@ -21,7 +22,7 @@ def main():
     # Get today's date
     today = datetime.now().strftime('%Y-%m-%d')
     # Set a starting date as n days preceding today
-    n_days = 0
+    n_days = 5
     start_date = (datetime.now() - timedelta(days=n_days)).strftime('%Y-%m-%d')
 
     # Directory setup
@@ -40,6 +41,7 @@ def main():
     wind_client = WindGenerationClient(output_dir=output_dir, db_path=db_path)
     dam_spp_client = DAMSettlementPointPricesClient(output_dir=output_dir, db_path=db_path)
     dam_lambda_client = DAMSystemLambdaClient(output_dir=output_dir, db_path=db_path)
+    rt_spp_client = RTSettlementPointPricesClient(output_dir=output_dir, db_path=db_path)
 
     
     #
@@ -86,6 +88,16 @@ def main():
         delivery_date_from=start_date,
         delivery_date_to=today,
     )
+
+    #
+    # Fetch real-time data
+    #
+    
+    print("\nFetching Real-Time Settlement Point Prices...")
+    rt_spp_df = rt_spp_client.get_rt_spp_data(
+        delivery_date_from=start_date,
+        delivery_date_to=today,
+    )
     
     print("\nData collection complete!")
     print(f"Load forecast records: {len(load_df)}")
@@ -93,6 +105,7 @@ def main():
     print(f"Wind generation records: {len(wind_df)}")
     print(f"DAM Settlement Point Price records: {len(dam_spp_df)}")
     print(f"DAM System Lambda records: {len(dam_lambda_df)}")
+    print(f"RT Settlement Point Price records: {len(rt_spp_df)}")
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

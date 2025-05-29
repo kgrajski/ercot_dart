@@ -4,7 +4,7 @@ from typing import Optional
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from ..base import ERCOTBaseViz
+from ..ercot_viz import ERCOTBaseViz
 
 
 class WindGenerationViz(ERCOTBaseViz):
@@ -56,8 +56,11 @@ class WindGenerationViz(ERCOTBaseViz):
         # Get data
         df = self.get_data(self.ENDPOINT_KEY)
         
+        # Make a copy to avoid chained assignment warnings
+        df = df.copy()
+        
         # Convert postedDatetime to datetime and extract the date component
-        df["posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
+        df.loc[:, "posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
 
         # Get unique posted dates
         posted_dates = sorted(df["posted_date"].unique())
@@ -68,10 +71,10 @@ class WindGenerationViz(ERCOTBaseViz):
             print(f"\nProcessing forecast posted on {posted_date}")
             
             # Filter data for this posted date
-            df_posted = df[df["posted_date"] == posted_date]
+            df_posted = df.loc[df["posted_date"] == posted_date].copy()
             
             # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_posted["datetime"] = df_posted.apply(
+            df_posted.loc[:, "datetime"] = df_posted.apply(
                 lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
                 axis=1
             )
@@ -88,11 +91,6 @@ class WindGenerationViz(ERCOTBaseViz):
             # Sort by datetime first, then by GeoZone_Type to maintain the order
             df_melted = df_melted.sort_values(["datetime", "GeoZone_Type"])
             
-            # Save melted DataFrame to CSV for debugging
-            csv_path = self.output_dir / f"df_melted_{posted_date}.csv"
-            df_melted.to_csv(csv_path, index=False)
-            print(f"Saved melted DataFrame to: {csv_path}")
-            
             # Create plot
             fig = px.line(df_melted, 
                          x="datetime", 
@@ -107,8 +105,9 @@ class WindGenerationViz(ERCOTBaseViz):
                 legend_title="GeoZone Type"
             )
             
-            # Save plot
-            self.save_plot(fig, posted_date, self.ENDPOINT_KEY)
+            # Save plot and data
+            self.save_plot(fig, str(posted_date), self.ENDPOINT_KEY)
+            self.save_data(df_melted, str(posted_date), self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for wind generation forecast data."""

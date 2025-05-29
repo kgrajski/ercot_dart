@@ -1,10 +1,10 @@
-"""DAM System Lambda visualization client."""
+"""DAM System Lambda visualization module."""
 
 from typing import Optional
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from ..base import ERCOTBaseViz
+from ..ercot_viz import ERCOTBaseViz
 
 
 class DAMSystemLambdaViz(ERCOTBaseViz):
@@ -25,8 +25,11 @@ class DAMSystemLambdaViz(ERCOTBaseViz):
         # Get data
         df = self.get_data(self.ENDPOINT_KEY)
         
+        # Make a copy to avoid chained assignment warnings
+        df = df.copy()
+        
         # Convert deliveryDate to datetime and extract the date component
-        df["delivery_date"] = pd.to_datetime(df["deliveryDate"]).dt.date
+        df.loc[:, "delivery_date"] = pd.to_datetime(df["deliveryDate"]).dt.date
         
         # Get unique delivery dates
         delivery_dates = sorted(df["delivery_date"].unique())
@@ -37,21 +40,16 @@ class DAMSystemLambdaViz(ERCOTBaseViz):
             print(f"\nProcessing DAM Lambda for delivery date {delivery_date}")
             
             # Filter data for this delivery date
-            df_delivery = df[df["delivery_date"] == delivery_date]
+            df_delivery = df.loc[df["delivery_date"] == delivery_date].copy()
             
             # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_delivery["datetime"] = df_delivery.apply(
+            df_delivery.loc[:, "datetime"] = df_delivery.apply(
                 lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
                 axis=1
             )
             
             # Sort by datetime
             df_delivery = df_delivery.sort_values("datetime")
-            
-            # Save DataFrame to CSV for debugging
-            csv_path = self.output_dir / f"dam_lambda_{delivery_date}.csv"
-            df_delivery.to_csv(csv_path, index=False)
-            print(f"Saved DataFrame to: {csv_path}")
             
             # Create plot
             fig = px.line(df_delivery, 
@@ -65,8 +63,9 @@ class DAMSystemLambdaViz(ERCOTBaseViz):
                 yaxis_title="System Lambda ($/MWh)",
             )
             
-            # Save plot
-            self.save_plot(fig, delivery_date, self.ENDPOINT_KEY)
+            # Save plot and data
+            self.save_plot(fig, str(delivery_date), self.ENDPOINT_KEY)
+            self.save_data(df_delivery, str(delivery_date), self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for DAM System Lambda data."""

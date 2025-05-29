@@ -3,7 +3,7 @@
 from typing import Optional, Dict
 from datetime import datetime
 import pandas as pd
-from ..base import ERCOTBaseClient
+from ..ercot_client import ERCOTBaseClient
 
 
 class WindGenerationClient(ERCOTBaseClient):

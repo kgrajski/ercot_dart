@@ -5,7 +5,8 @@ from .solar import SolarGenerationClient
 from .wind import WindGenerationClient
 from .dam_spp import DAMSettlementPointPricesClient
 from .dam_lambda import DAMSystemLambdaClient
-from ..base import ERCOTBaseClient
+from .rt_spp import RTSettlementPointPricesClient
+from ..ercot_client import ERCOTBaseClient
 
 __all__ = [
     'LoadForecastClient',
@@ -13,5 +14,6 @@ __all__ = [
     'WindGenerationClient',
     'DAMSettlementPointPricesClient',
     'DAMSystemLambdaClient',
+    'RTSettlementPointPricesClient',
     'ERCOTBaseClient',
 ] 

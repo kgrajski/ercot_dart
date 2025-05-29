@@ -1,0 +1,52 @@
+# Project To-Do List
+
+documentation:
+  high_priority:
+    - description: "Add ERCOT vs Python hour numbering warnings throughout codebase"
+      details: |
+        ERCOT uses 1-24 hour notation while Python uses 0-23.
+        Consider adding warnings/reminders in:
+        - Data processing functions
+        - Visualization modules
+        - Analysis notebooks
+        - Test cases
+        - Function docstrings where time conversion occurs
+      rationale: "Critical to prevent time-related bugs and make time handling explicit"
+      potential_locations:
+        - src/etl/ercot/base.py (expand existing documentation)
+        - src/visualization/ercot/clients/*.py (add warnings in time-related plotting)
+        - src/data/ercot/clients/*.py (add notes in data collection)
+        - src/features/ercot/*.py (add warnings in feature generation)
+        - tests/*/test_*.py (add specific test cases)
+
+code_improvements:
+  future_considerations:
+    - description: "Consider creating a dedicated time handling utility module"
+      details: |
+        Could include:
+        - ERCOT to Python time conversion functions
+        - Validation utilities
+        - Common time operations
+        - Clear documentation of all time conventions
+      rationale: "Centralize time handling logic and make conventions explicit"
+
+testing:
+  needed:
+    - description: "Add comprehensive time handling test suite"
+      details: |
+        Test cases should cover:
+        - ERCOT hour 24 to Python hour 0 conversion
+        - DST handling
+        - Edge cases around midnight
+        - 15-minute interval calculations (RT data)
+      rationale: "Ensure consistent and correct time handling across codebase"
+
+# Template for new tasks:
+#   - description: "Brief task description"
+#     details: |
+#       Detailed explanation
+#       Multiple lines if needed
+#     rationale: "Why this is important"
+#     priority: high/medium/low
+#     status: not_started/in_progress/completed
+#     dependencies: [] 

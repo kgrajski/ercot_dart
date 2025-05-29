@@ -151,6 +151,24 @@ class ERCOTBaseViz:
             
         return df
     
+    def save_data(self, df: pd.DataFrame, date: str, endpoint_key: str):
+        """Save DataFrame as CSV file with consistent naming.
+        
+        Args:
+            df (pd.DataFrame): Data to save
+            date (str): The date to use in the filename (posted_date or delivery_date)
+            endpoint_key (str): The endpoint identifier
+        """
+        # Create filename with endpoint and date
+        filename = f"{endpoint_key}_{date}.csv"
+            
+        # Create full path
+        filepath = self.output_dir / filename
+        
+        # Save DataFrame
+        df.to_csv(filepath, index=False)
+        print(f"Saved DataFrame to: {filepath}")
+    
     def save_plot(self, fig: go.Figure, date: str, endpoint_key: str):
         """Save plotly figure as HTML file.
         

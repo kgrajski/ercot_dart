@@ -23,30 +23,27 @@ class ERCOTProcessor:
         if self.output_dir:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
-    def process_response(self, response) -> pd.DataFrame:
-        """Process a single API response.
+    def json_to_df(self, response_data: Dict) -> pd.DataFrame:
+        """Convert JSON response data to DataFrame.
         
         Args:
-            response: API response object
+            response_data (Dict): Dictionary containing response data with fields and data
             
         Returns:
             pd.DataFrame: Processed data
             
         Raises:
-            ValueError: If response is missing required fields
+            ValueError: If response data is missing required fields
         """
-        # Parse JSON response
-        json_response = response.json()
-        
         # Validate response structure
-        required_fields = ["_meta", "fields", "data"]
-        missing = [f for f in required_fields if f not in json_response]
+        required_fields = ["fields", "data"]
+        missing = [f for f in required_fields if f not in response_data]
         if missing:
-            raise ValueError(f"Response missing required fields: {', '.join(missing)}")
+            raise ValueError(f"Response data missing required fields: {', '.join(missing)}")
             
         # Extract data and field definitions
-        data = json_response["data"]
-        fields = json_response["fields"]
+        data = response_data["data"]
+        fields = response_data["fields"]
         
         # Convert to DataFrame
         if not data:
@@ -75,6 +72,27 @@ class ERCOTProcessor:
                 df[column_name] = df[column_name].astype("string")
                 
         return df
+            
+    def process_response(self, response) -> pd.DataFrame:
+        """Process a single API response.
+        
+        Args:
+            response: API response object
+            
+        Returns:
+            pd.DataFrame: Processed data
+            
+        Raises:
+            ValueError: If response is missing required fields
+        """
+        # Parse JSON response
+        json_response = response.json()
+        
+        # Validate response structure
+        if "_meta" not in json_response:
+            raise ValueError("Response missing _meta field")
+            
+        return self.json_to_df(json_response)
     
     def process_data(self, data: List[Dict]) -> pd.DataFrame:
         """Process a list of data records.
@@ -104,7 +122,7 @@ class ERCOTProcessor:
         Args:
             df (pd.DataFrame): Data to save
             endpoint_key (str): Key identifying the endpoint
-            params (Dict): Query parameters used to get the data
+            params (Dict): Query parameters used to get the data (kept for backwards compatibility)
             
         Returns:
             Path: Path to saved CSV file
@@ -115,18 +133,12 @@ class ERCOTProcessor:
         if not self.output_dir:
             raise ValueError("output_dir must be set to save CSV files")
             
-        # Create filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{endpoint_key}_{timestamp}.csv"
+        # Create simple filename without timestamp
+        filename = f"{endpoint_key}.csv"
         filepath = self.output_dir / filename
         
         # Save DataFrame
         df.to_csv(filepath, index=False)
-        
-        # Save parameters to JSON file
-        params_file = filepath.with_suffix(".json")
-        with open(params_file, "w") as f:
-            json.dump(params, f, indent=2)
             
         return filepath
     

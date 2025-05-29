@@ -1,6 +1,6 @@
 """ERCOT visualization package."""
 
-from .base import ERCOTBaseViz
+from .ercot_viz import ERCOTBaseViz
 from .clients.load import LoadForecastViz
 from .clients.solar import SolarGenerationViz
 from .clients.wind import WindGenerationViz

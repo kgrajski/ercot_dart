@@ -8,7 +8,7 @@ from typing import Optional
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from ..base import ERCOTBaseViz
+from ..ercot_viz import ERCOTBaseViz
 
 
 class LoadForecastViz(ERCOTBaseViz):
@@ -30,13 +30,16 @@ class LoadForecastViz(ERCOTBaseViz):
         """Create daily load forecast by weather zone visualization for each posted date."""
         # Get data
         df = self.get_data(self.ENDPOINT_KEY)
+        
+        # Make a copy to avoid chained assignment warnings
+        df = df.copy()
 
         # We want to subset the data to use only the rows where the inUse column is TRUE
-        df = df[df["inUseFlag"] == True]
+        df = df.loc[df["inUseFlag"] == True].copy()
         print(f"Found {len(df)} rows for this set of posted dates")
 
         # Convert postedDatetime to datetime and extract the date component
-        df["posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
+        df.loc[:, "posted_date"] = pd.to_datetime(df["postedDatetime"]).dt.date
         
         # Get unique posted dates
         posted_dates = sorted(df["posted_date"].unique())
@@ -47,10 +50,10 @@ class LoadForecastViz(ERCOTBaseViz):
             print(f"\nProcessing forecast posted on {posted_date}")
             
             # Filter data for this posted date
-            df_posted = df[df["posted_date"] == posted_date]
+            df_posted = df.loc[df["posted_date"] == posted_date].copy()
             
             # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_posted["datetime"] = df_posted.apply(
+            df_posted.loc[:, "datetime"] = df_posted.apply(
                 lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
                 axis=1
             )
@@ -81,8 +84,9 @@ class LoadForecastViz(ERCOTBaseViz):
                 legend_title="Weather Zone"
             )
             
-            # Save plot
-            self.save_plot(fig, posted_date, self.ENDPOINT_KEY)
+            # Save plot and data
+            self.save_plot(fig, str(posted_date), self.ENDPOINT_KEY)
+            self.save_data(df_melted, str(posted_date), self.ENDPOINT_KEY)
     
     def generate_plots(self):
         """Generate all plots for load forecast data."""

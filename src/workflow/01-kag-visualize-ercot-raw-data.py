@@ -2,11 +2,13 @@
 
 import os
 import time
-from ercot.clients.load import LoadForecastViz
-from ercot.clients.solar import SolarGenerationViz
-from ercot.clients.wind import WindGenerationViz
-from ercot.clients.dam_lambda import DAMSystemLambdaViz
-from ercot.clients.dam_spp import DAMSettlementPointPricesViz
+from datetime import datetime
+from visualization.ercot.clients.load import LoadForecastViz
+from visualization.ercot.clients.solar import SolarGenerationViz
+from visualization.ercot.clients.wind import WindGenerationViz
+from visualization.ercot.clients.dam_lambda import DAMSystemLambdaViz
+from visualization.ercot.clients.dam_spp import DAMSettlementPointPricesViz
+from visualization.ercot.clients.rt_spp import RTSettlementPointPricesViz
 
 def main():
     """Main function for visualizing raw ERCOT data."""
@@ -20,7 +22,7 @@ def main():
     project_dir = os.path.join(root_dir, "ercot_dart")
 
     # Identify the input directory by date
-    raw_data_date = "2025-05-27"
+    raw_data_date = datetime.now().strftime('%Y-%m-%d')
     data_dir = os.path.join(project_dir, "data/raw", raw_data_date)
 
     # Set up output directory
@@ -51,6 +53,11 @@ def main():
     print("\nGenerating DAM Settlement Point Prices visualizations...")
     dam_spp_viz = DAMSettlementPointPricesViz(data_dir=data_dir, output_dir=output_dir)
     dam_spp_viz.generate_plots()
+    
+    # Create RT Settlement Point Prices visualizer and generate plots
+    print("\nGenerating RT Settlement Point Prices visualizations...")
+    rt_spp_viz = RTSettlementPointPricesViz(data_dir=data_dir, output_dir=output_dir)
+    rt_spp_viz.generate_plots()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

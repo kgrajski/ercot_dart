@@ -5,15 +5,22 @@ from urllib.parse import quote
 import requests
 from dotenv import load_dotenv
 from typing import Tuple
+import time
 
 
 class ERCOTAuth:
     """Handles authentication with the ERCOT API."""
     
+    # Token lifetime in seconds (1 hour)
+    TOKEN_LIFETIME = 3600
+    # Refresh token when less than this many seconds remain (5 minutes)
+    TOKEN_REFRESH_THRESHOLD = 300
+    
     def __init__(self):
         """Initialize with credentials loaded from environment."""
         self.username, self.password, self.subscription_key = self.load_credentials()
         self.access_token = None
+        self.token_created_at = None
         
     @staticmethod
     def load_credentials() -> Tuple[str, str, str]:
@@ -38,6 +45,20 @@ class ERCOTAuth:
             
         return ercot_username, ercot_password, ercot_subscription_key
     
+    def should_refresh_token(self) -> bool:
+        """Check if token should be refreshed.
+        
+        Returns:
+            bool: True if token should be refreshed, False otherwise
+        """
+        if not self.access_token or not self.token_created_at:
+            return True
+            
+        elapsed = time.time() - self.token_created_at
+        remaining = self.TOKEN_LIFETIME - elapsed
+        
+        return remaining <= self.TOKEN_REFRESH_THRESHOLD
+    
     def get_token(self) -> str:
         """Get ERCOT API authentication token using instance credentials.
         
@@ -47,8 +68,11 @@ class ERCOTAuth:
         Raises:
             ValueError: If authentication fails or no token is received
         """
-        if not self.access_token:
+        if self.should_refresh_token():
             self.access_token = self._get_ercot_token(self.username, self.password)
+            self.token_created_at = time.time()
+            print("\nToken refreshed")
+            
         return self.access_token
     
     @staticmethod
