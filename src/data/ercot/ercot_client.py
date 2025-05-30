@@ -58,7 +58,7 @@ class ERCOTBaseClient:
         
         return ", ".join(parts)
     
-    def print_pagination_info(self, total_records: int, records_per_page: int, total_pages: int) -> None:
+    def print_pagination_info(self, total_records: int, records_per_page: int, total_pages: int) -> str:
         """Print information about pagination and estimated download time.
         
         Args:
@@ -66,17 +66,16 @@ class ERCOTBaseClient:
             records_per_page (int): Number of records per page
             total_pages (int): Total number of pages
         """
-        print(f"\nPagination Info:")
-        print(f"Total Records: {total_records}")
-        print(f"Records per Page: {records_per_page}")
-        print(f"Total Pages: {total_pages}")
-        print(f"Rate Limit: {self.api.RATE_LIMIT} requests per minute")
-        print(f"Minimum interval between requests: {self.api.MIN_REQUEST_INTERVAL:.2f} seconds")
+        info = [
+            f"Records: {total_records}",
+            f"Pages: {total_pages}",
+        ]
         
         if total_pages and total_pages > 1:
             time_estimate = self.estimate_download_time(total_pages)
-            print(f"Estimated download time: {time_estimate}")
-        print()
+            info.append(f"Est. time: {time_estimate}")
+        
+        return " | ".join(info)
     
     def _build_query_params(self, current_date: datetime, params: Dict) -> Dict:
         """Build query parameters for a specific date based on the original params.
@@ -163,7 +162,7 @@ class ERCOTBaseClient:
         all_data = []
         
         # Create progress bar for days
-        with tqdm(total=num_days, desc="Processing days", unit="day") as day_pbar:
+        with tqdm(total=num_days, desc="Processing days", unit="day", position=0) as day_pbar:
             # Process each day
             for current_date in date_range:
                 formatted_date = current_date.strftime('%Y-%m-%d')
@@ -186,18 +185,19 @@ class ERCOTBaseClient:
                 records_per_page = meta.get('pageSize')
                 total_records = meta.get('totalRecords')
                 
-                # Print pagination information for this day
-                self.print_pagination_info(total_records, records_per_page, total_pages)
-                
                 # Extract data from first page
                 data = response_json.get('data', [])
                 if data:
                     all_data.extend(data)
                 
+                # Update day progress with pagination info
+                day_pbar.set_postfix_str(f"date={formatted_date} | " + 
+                                       self.print_pagination_info(total_records, records_per_page, total_pages))
+                
                 # Handle pagination if needed
                 if total_pages and total_pages > 1:
-                    with tqdm(total=total_pages-1, desc=f"Fetching pages for {formatted_date}", 
-                            unit="page", leave=False) as page_pbar:
+                    with tqdm(total=total_pages-1, desc="Pages", unit="page", 
+                            position=1, leave=False) as page_pbar:
                         for current_page in range(2, total_pages + 1):
                             # Always wait the minimum interval
                             time.sleep(self.api.MIN_REQUEST_INTERVAL)
@@ -222,10 +222,9 @@ class ERCOTBaseClient:
                 
                 # Update day progress
                 day_pbar.update(1)
-                day_pbar.set_postfix({'date': formatted_date})
         
         # Convert all collected data to DataFrame
-        tqdm.write("\nConverting data to DataFrame...")
+        tqdm.write("\nProcessing collected data...")
         df = self.processor.json_to_df({
             "_meta": response_json["_meta"], 
             "report": response_json.get("report", {}),
@@ -236,12 +235,11 @@ class ERCOTBaseClient:
         # Save to CSV if output directory is set
         csv_file = None
         if self.processor.output_dir:
-            tqdm.write("Saving to CSV...")
             csv_file = self.processor.save_to_csv(df, endpoint_key, params)
+            tqdm.write(f"Data saved to: {csv_file}")
         
         # Save to database
         if self.db_processor:
-            tqdm.write("Saving to database...")
             self.save_to_database(df, endpoint_key)
         
         # Verify and report on the data

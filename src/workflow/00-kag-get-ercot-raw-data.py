@@ -22,7 +22,7 @@ def main():
     # Get today's date
     today = datetime.now().strftime('%Y-%m-%d')
     # Set a starting date as n days preceding today
-    n_days = 5
+    n_days = 150
     start_date = (datetime.now() - timedelta(days=n_days)).strftime('%Y-%m-%d')
 
     # Directory setup
