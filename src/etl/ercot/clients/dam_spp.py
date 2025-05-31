@@ -5,6 +5,10 @@ import pandas as pd
 from etl.ercot.ercot_etl import ERCOTBaseETL
 
 
+# Maximum number of duplicate examples to show in validation error logs
+MAX_DUPLICATE_EXAMPLES = 10
+
+
 class DAMSettlementPointPricesETL(ERCOTBaseETL):
     """
     ETL client for ERCOT DAM Settlement Point Prices data.
@@ -114,10 +118,46 @@ class DAMSettlementPointPricesETL(ERCOTBaseETL):
                 print("Error: Data is not sorted by datetime and location")
                 return False
             
-            # Check for duplicates (should be one row per datetime per location)
+            # Enhanced duplicate detection
             duplicates = df.groupby(["datetime", "location"]).size()
-            if (duplicates > 1).any():
-                print("Error: Found duplicate entries for datetime and location")
+            duplicate_pairs = duplicates[duplicates > 1]
+            
+            if not duplicate_pairs.empty:
+                total_duplicates = len(duplicate_pairs)
+                print(f"\nFound {total_duplicates} datetime-location pairs with duplicate entries")
+                print(f"Showing first {min(MAX_DUPLICATE_EXAMPLES, total_duplicates)} examples:")
+                print("-" * 50)
+                
+                for i, ((dt, loc), count) in enumerate(duplicate_pairs.items()):
+                    if i >= MAX_DUPLICATE_EXAMPLES:
+                        remaining = total_duplicates - MAX_DUPLICATE_EXAMPLES
+                        print(f"\n... and {remaining} more duplicate pairs not shown ...")
+                        break
+                        
+                    print(f"\nExample {i + 1}/{min(MAX_DUPLICATE_EXAMPLES, total_duplicates)}:")
+                    print(f"DateTime: {dt}")
+                    print(f"Location: {loc}")
+                    print(f"Number of entries: {count}")
+                    
+                    # Show the actual duplicate rows
+                    dupe_rows = df[
+                        (df["datetime"] == dt) & 
+                        (df["location"] == loc)
+                    ].sort_values("price")
+                    
+                    print("\nDuplicate rows:")
+                    print(dupe_rows.to_string())
+                    print("\nOriginal raw data for these entries:")
+                    
+                    # Get the raw data for these entries
+                    raw_df = self.get_raw_data(self.ENDPOINT_KEY)
+                    raw_matches = raw_df[
+                        (raw_df["deliveryDate"] == dt.strftime("%Y-%m-%d")) &
+                        (raw_df["settlementPoint"] == loc)
+                    ]
+                    print(raw_matches.to_string())
+                    print("-" * 50)
+                
                 return False
             
             return True
