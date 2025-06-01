@@ -22,7 +22,7 @@ class DAMSettlementPointPricesViz(ERCOTBaseViz):
     
     def plot_dam_spp(self):
         """Create daily DAM Settlement Point Prices visualization for each delivery date."""
-        # Get data
+        # Get data (now includes pre-processed utc_ts and local_ts columns)
         df = self.get_data(self.ENDPOINT_KEY)
         
         # Make a copy to avoid chained assignment warnings
@@ -46,11 +46,8 @@ class DAMSettlementPointPricesViz(ERCOTBaseViz):
             # Filter data for this delivery date
             df_delivery = df.loc[df["delivery_date"] == delivery_date].copy()
             
-            # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_delivery.loc[:, "datetime"] = df_delivery.apply(
-                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
-                axis=1
-            )
+            # Use local timestamp directly (no manual datetime combining needed)
+            df_delivery.loc[:, "datetime"] = df_delivery["local_ts"]
             
             # Sort by datetime and settlement point for consistent ordering
             df_delivery = df_delivery.sort_values(["datetime", "settlementPoint"])
@@ -64,7 +61,7 @@ class DAMSettlementPointPricesViz(ERCOTBaseViz):
             
             # Customize layout
             fig.update_layout(
-                xaxis_title="Hour Ending",
+                xaxis_title="Local Time",
                 yaxis_title="Settlement Point Price ($/MWh)",
                 legend_title="Settlement Point"
             )

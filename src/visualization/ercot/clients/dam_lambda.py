@@ -42,11 +42,8 @@ class DAMSystemLambdaViz(ERCOTBaseViz):
             # Filter data for this delivery date
             df_delivery = df.loc[df["delivery_date"] == delivery_date].copy()
             
-            # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_delivery.loc[:, "datetime"] = df_delivery.apply(
-                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
-                axis=1
-            )
+            # Use local timestamp directly (no manual datetime combining needed)
+            df_delivery.loc[:, "datetime"] = df_delivery["local_ts"]
             
             # Sort by datetime
             df_delivery = df_delivery.sort_values("datetime")
@@ -59,7 +56,7 @@ class DAMSystemLambdaViz(ERCOTBaseViz):
             
             # Customize layout
             fig.update_layout(
-                xaxis_title="Hour Ending",
+                xaxis_title="Local Time",
                 yaxis_title="System Lambda ($/MWh)",
             )
             

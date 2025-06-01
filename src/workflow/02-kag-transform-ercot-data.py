@@ -26,41 +26,44 @@ def main():
 
     # Identify the input directory by date
     raw_data_date = datetime.now().strftime('%Y-%m-%d')
-    raw_data_date = "2025-05-30"
+    raw_data_date = "2025-05-31"
     data_dir = os.path.join(project_dir, "data/raw", raw_data_date)
 
     # Set up output directory
     output_dir = os.path.join(project_dir, "data/processed", raw_data_date)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Transform DAM Settlement Point Prices
-    print("\nTransforming DAM Settlement Point Prices...")
-    dam_spp_etl = DAMSettlementPointPricesETL(data_dir=data_dir, output_dir=output_dir)
-    dam_spp_etl.transform()
-
-    # Transform DAM System Lambda
-    print("\nTransforming DAM System Lambda...")
-    dam_lambda_etl = DAMSystemLambdaETL(data_dir=data_dir, output_dir=output_dir)
-    dam_lambda_etl.transform()
+    # Set up database path
+    db_path = os.path.join(output_dir, "ercot_data.db")
 
     # Transform Load Forecast
     print("\nTransforming Load Forecast...")
-    load_etl = LoadForecastETL(data_dir=data_dir, output_dir=output_dir)
+    load_etl = LoadForecastETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
     load_etl.transform()
 
     # Transform Wind Generation
     print("\nTransforming Wind Generation...")
-    wind_etl = WindGenerationETL(data_dir=data_dir, output_dir=output_dir)
+    wind_etl = WindGenerationETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
     wind_etl.transform()
 
     # Transform Solar Generation
     print("\nTransforming Solar Generation...")
-    solar_etl = SolarGenerationETL(data_dir=data_dir, output_dir=output_dir)
+    solar_etl = SolarGenerationETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
     solar_etl.transform()
+
+    # Transform DAM Settlement Point Prices
+    print("\nTransforming DAM Settlement Point Prices...")
+    dam_spp_etl = DAMSettlementPointPricesETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
+    dam_spp_etl.transform()
+
+    # Transform DAM System Lambda
+    print("\nTransforming DAM System Lambda...")
+    dam_lambda_etl = DAMSystemLambdaETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
+    dam_lambda_etl.transform()
     
     # Transform RT Settlement Point Prices
     print("\nTransforming RT Settlement Point Prices...")
-    rt_spp_etl = RTSettlementPointPricesETL(data_dir=data_dir, output_dir=output_dir)
+    rt_spp_etl = RTSettlementPointPricesETL(data_dir=data_dir, output_dir=output_dir, db_path=db_path)
     rt_spp_etl.transform()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))

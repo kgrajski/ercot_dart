@@ -3,7 +3,7 @@
 from typing import Optional, Dict
 from datetime import datetime
 import pandas as pd
-from ..ercot_client import ERCOTBaseClient
+from ..ercot_data import ERCOTBaseClient
 
 
 class LoadForecastClient(ERCOTBaseClient):

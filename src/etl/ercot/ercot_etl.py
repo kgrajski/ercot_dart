@@ -5,64 +5,25 @@ from typing import Optional, List, Dict
 from pathlib import Path
 from datetime import datetime, timedelta
 import pandas as pd
+from data.ercot.database import DatabaseProcessor
 
 
 class ERCOTBaseETL:
     """Base class for ERCOT data ETL operations."""
     
-    def __init__(self, data_dir: str, output_dir: str):
+    def __init__(self, data_dir: str, output_dir: str, db_path: Optional[str] = None):
         """Initialize ETL handler.
         
         Args:
             data_dir (str): Directory containing raw CSV data files
             output_dir (str): Directory where cleaned data will be saved
+            db_path (str, optional): Path to SQLite database file
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.db_processor = DatabaseProcessor(db_path) if db_path else None
         
-    @staticmethod
-    def combine_date_hour(date: str, hour_ending: str | pd.Int64Dtype | int) -> pd.Timestamp:
-        """Combine ERCOT delivery date and hour ending into a timestamp.
-        
-        Handles multiple hour_ending formats:
-        - String format ("HH:MM" or "HH:MM:SS")
-        - Integer format (Int64 or int, 1-24)
-        Handles the special case of "24:00" or "24:00:00" or 24 by converting it to "00:00" of the next day.
-        
-        Args:
-            date (str): Delivery date in format "YYYY-MM-DD"
-            hour_ending (str | pd.Int64Dtype | int): Hour ending in either:
-                - String format "HH:MM" or "HH:MM:SS" (24-hour clock)
-                - Integer format (1-24)
-            
-        Returns:
-            pd.Timestamp: Combined datetime
-        """
-        # Convert hour_ending to string format if it's an integer type
-        if isinstance(hour_ending, (int, pd.Int64Dtype)):
-            # Handle hour 24 case for integer input
-            if hour_ending == 24:
-                base_dt = pd.to_datetime(date)
-                return base_dt + timedelta(days=1)
-            hour_ending = f"{int(hour_ending):02d}:00"
-        elif isinstance(hour_ending, str):
-            # Handle hour 24 case for string input ("24:00" or "24:00:00")
-            if hour_ending.startswith("24:"):
-                base_dt = pd.to_datetime(date)
-                return base_dt + timedelta(days=1)
-            # If we have "HH:MM:SS" format, strip off the seconds
-            if len(hour_ending.split(":")) == 3:
-                hour_ending = ":".join(hour_ending.split(":")[:2])
-        else:
-            # If we get here, we have an unexpected type
-            print(f"Warning: Unexpected hour_ending type: {type(hour_ending)}. Value: {hour_ending}")
-            # Try to convert to string and proceed
-            hour_ending = str(hour_ending)
-            
-        # For normal hours, parse directly
-        return pd.to_datetime(f"{date} {hour_ending}")
-    
     def get_raw_data(self, endpoint_key: str) -> pd.DataFrame:
         """Get raw data from CSV file.
         
@@ -79,14 +40,15 @@ class ERCOTBaseETL:
             
         print(f"Reading raw data from: {csv_file}")
         
-        # Read CSV with appropriate type handling
+        # Read CSV with appropriate type handling, automatically parsing timestamp columns
         return pd.read_csv(
             csv_file,
-            dtype_backend="numpy_nullable"  # Better string and nullable type handling
+            dtype_backend="numpy_nullable",  # Better string and nullable type handling
+            parse_dates=['local_ts', 'utc_ts']  # Parse timestamp columns
         )
     
     def save_clean_data(self, df: pd.DataFrame, endpoint_key: str):
-        """Save cleaned data to CSV.
+        """Save cleaned data to CSV and database.
         
         Args:
             df (pd.DataFrame): Cleaned DataFrame to save
@@ -99,9 +61,13 @@ class ERCOTBaseETL:
         # Save to CSV
         df.to_csv(filepath, index=False)
         print(f"Saved cleaned data to: {filepath}")
+        
+        # Save to database if configured
+        if self.db_processor:
+            self.save_to_database(df, f"{endpoint_key}_clean")
     
     def save_transformed_data(self, df: pd.DataFrame, endpoint_key: str):
-        """Save transformed data to CSV.
+        """Save transformed data to CSV and database.
         
         Args:
             df (pd.DataFrame): Transformed DataFrame to save
@@ -114,6 +80,22 @@ class ERCOTBaseETL:
         # Save to CSV
         df.to_csv(filepath, index=False)
         print(f"Saved transformed data to: {filepath}")
+        
+        # Save to database if configured
+        if self.db_processor:
+            self.save_to_database(df, f"{endpoint_key}_transformed")
+    
+    def save_to_database(self, df: pd.DataFrame, endpoint_key: str):
+        """Save data to database with ETL-specific handling.
+        This method can be overridden by subclasses to provide custom
+        data preparation before saving to database.
+        
+        Args:
+            df (pd.DataFrame): DataFrame to save
+            endpoint_key (str): Key identifying the endpoint/table
+        """
+        if self.db_processor:
+            self.db_processor.save_to_database(df, endpoint_key)
     
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean raw data into standardized format.
@@ -139,6 +121,73 @@ class ERCOTBaseETL:
         """
         return None
     
+    def validate_temporal_completeness(self, df: pd.DataFrame) -> bool:
+        """Validate that every hour between earliest and latest utc_ts has at least one row.
+        
+        This method checks for temporal gaps in the data by ensuring that
+        every hour in the time range is represented by at least one record.
+        Useful for detecting missing hours in time series data.
+        
+        Args:
+            df (pd.DataFrame): DataFrame to validate (must have utc_ts column)
+            
+        Returns:
+            bool: True if no temporal gaps found, False otherwise
+        """
+        try:
+            if df.empty:
+                print("Warning: Cannot validate temporal completeness on empty DataFrame")
+                return True
+                
+            if 'utc_ts' not in df.columns:
+                print("Error: DataFrame missing required utc_ts column for temporal validation")
+                return False
+            
+            # Extract hourly timestamps (truncate to hour)
+            hourly_timestamps = df['utc_ts'].dt.floor('h')
+            
+            # Find earliest and latest hours
+            earliest_hour = hourly_timestamps.min()
+            latest_hour = hourly_timestamps.max()
+            
+            # Generate complete hour range
+            expected_hours = pd.date_range(
+                start=earliest_hour, 
+                end=latest_hour, 
+                freq='h'
+            )
+            
+            # Get unique hours present in data
+            actual_hours = set(hourly_timestamps.unique())
+            expected_hours_set = set(expected_hours)
+            
+            # Find missing hours
+            missing_hours = expected_hours_set - actual_hours
+            
+            if missing_hours:
+                missing_count = len(missing_hours)
+                total_expected = len(expected_hours)
+                print(f"Error: Temporal completeness validation failed")
+                print(f"Missing {missing_count} hours out of {total_expected} expected hours")
+                print(f"Time range: {earliest_hour} to {latest_hour}")
+                
+                # Show first few missing hours as examples
+                sorted_missing = sorted(list(missing_hours))[:5]
+                print(f"First missing hours: {[str(h) for h in sorted_missing]}")
+                if missing_count > 5:
+                    print(f"... and {missing_count - 5} more")
+                    
+                return False
+            
+            # Success case
+            total_hours = len(expected_hours)
+            print(f"Temporal completeness validated: {total_hours} hours from {earliest_hour} to {latest_hour}")
+            return True
+            
+        except Exception as e:
+            print(f"Temporal validation error: {str(e)}")
+            return False
+    
     def validate_data(self, df: pd.DataFrame) -> bool:
         """Validate cleaned data meets requirements.
         This method should be implemented by each client class.
@@ -163,7 +212,11 @@ class ERCOTBaseETL:
         # Clean data
         df_clean = self.clean_data(df_raw)
         
-        # Validate
+        # Validate temporal completeness first (if this fails, no point in detailed validation)
+        if not self.validate_temporal_completeness(df_clean):
+            raise ValueError("Temporal completeness validation failed")
+        
+        # Run client-specific validation
         if not self.validate_data(df_clean):
             raise ValueError("Data validation failed")
             
@@ -177,45 +230,3 @@ class ERCOTBaseETL:
             return df_transformed
         
         return df_clean 
-
-    @staticmethod
-    def convert_hour_ending(hour_ending: str | pd.Int64Dtype | int) -> int:
-        """Convert ERCOT hour ending format to 0-23 integer.
-        
-        Handles multiple hour_ending formats:
-        - String format ("HH:MM" or "HH:MM:SS")
-        - Integer format (Int64 or int, 1-24)
-        
-        Args:
-            hour_ending (str | pd.Int64Dtype | int): Hour ending in either:
-                - String format "HH:MM" or "HH:MM:SS" (24-hour clock)
-                - Integer format (1-24)
-            
-        Returns:
-            int: Hour as 0-23 integer
-            
-        Example:
-            >>> convert_hour_ending("24:00")
-            0
-            >>> convert_hour_ending("24:00:00")
-            0
-            >>> convert_hour_ending(24)
-            0
-            >>> convert_hour_ending("14:00")
-            13
-            >>> convert_hour_ending(14)
-            13
-        """
-        if isinstance(hour_ending, (int, pd.Int64Dtype)):
-            hour = int(hour_ending)
-        elif isinstance(hour_ending, str):
-            # Strip seconds if present
-            if len(hour_ending.split(":")) == 3:
-                hour_ending = ":".join(hour_ending.split(":")[:2])
-            # Extract hour and convert to integer
-            hour = int(hour_ending.split(":")[0])
-        else:
-            raise ValueError(f"Unexpected hour_ending type: {type(hour_ending)}. Value: {hour_ending}")
-            
-        # Convert hour 24 to hour 0
-        return 0 if hour == 24 else hour - 1 

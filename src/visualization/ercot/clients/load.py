@@ -28,14 +28,14 @@ class LoadForecastViz(ERCOTBaseViz):
     
     def plot_load_forecast(self):
         """Create daily load forecast by weather zone visualization for each posted date."""
-        # Get data
+        # Get data (now includes pre-processed utc_ts and local_ts columns)
         df = self.get_data(self.ENDPOINT_KEY)
         
         # Make a copy to avoid chained assignment warnings
         df = df.copy()
-
-        # We want to subset the data to use only the rows where the inUse column is TRUE
-        df = df.loc[df["inUseFlag"] == True].copy()
+        
+        # Filter to inUse forecasts only
+        df = df[df["inUseFlag"] == True].copy()
         print(f"Found {len(df)} rows for this set of posted dates")
 
         # Convert postedDatetime to datetime and extract the date component
@@ -50,13 +50,10 @@ class LoadForecastViz(ERCOTBaseViz):
             print(f"\nProcessing forecast posted on {posted_date}")
             
             # Filter data for this posted date
-            df_posted = df.loc[df["posted_date"] == posted_date].copy()
+            df_posted = df[df["posted_date"] == posted_date].copy()
             
-            # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_posted.loc[:, "datetime"] = df_posted.apply(
-                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
-                axis=1
-            )
+            # Use UTC timestamp directly (no manual datetime combining needed)
+            df_posted["datetime"] = df_posted["local_ts"]
             
             # Melt the weather zone columns into a single column
             df_melted = pd.melt(
@@ -79,7 +76,7 @@ class LoadForecastViz(ERCOTBaseViz):
             
             # Customize layout
             fig.update_layout(
-                xaxis_title="Time",
+                xaxis_title="Local Time",
                 yaxis_title="Load Forecast (MW)",
                 legend_title="Weather Zone"
             )

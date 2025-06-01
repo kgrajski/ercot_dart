@@ -1,7 +1,7 @@
 """Real-Time Settlement Point Prices client module for ERCOT API."""
 
 import pandas as pd
-from ..ercot_client import ERCOTBaseClient
+from ..ercot_data import ERCOTBaseClient
 
 
 class RTSettlementPointPricesClient(ERCOTBaseClient):
@@ -55,6 +55,46 @@ class RTSettlementPointPricesClient(ERCOTBaseClient):
         
         return current_params
     
+    def _prepare_timestamps(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare timestamp columns for RT SPP data.
+        
+        Args:
+            df: DataFrame with raw RT SPP data
+            
+        Returns:
+            DataFrame with standardized timestamp columns
+        """
+        if df.empty:
+            return df
+            
+        # Copy deliveryHour to hourEnding - RT SPP uses integers 1-24
+        # This spoofs (overrides?) the hourEnding column in the API response
+        df['hourEnding'] = df['deliveryHour']
+        
+        return df
+    
+    def _adjust_timestamps_for_intervals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Adjust timestamps to include 15-minute intervals.
+        
+        Args:
+            df: DataFrame with hourly timestamps and deliveryInterval column
+            
+        Returns:
+            DataFrame with timestamps adjusted for 15-minute intervals
+        """
+        if df.empty or 'deliveryInterval' not in df.columns:
+            return df
+            
+        # Calculate minutes to add based on deliveryInterval (1-4)
+        # Interval 1 = 0 minutes, Interval 2 = 15 minutes, etc.
+        interval_minutes = (df['deliveryInterval'] - 1) * 15
+        
+        # Add interval minutes to both local_ts and utc_ts
+        df['local_ts'] = df['local_ts'] + pd.to_timedelta(interval_minutes, unit='minutes')
+        df['utc_ts'] = df['utc_ts'] + pd.to_timedelta(interval_minutes, unit='minutes')
+        
+        return df
+
     def get_rt_spp_data(self, delivery_date_from, delivery_date_to):
         """Get ERCOT Real-Time Settlement Point Prices.
         
@@ -68,6 +108,7 @@ class RTSettlementPointPricesClient(ERCOTBaseClient):
                 - Delivery dates, hours, and intervals (1-4 for 15-minute periods)
                 - Settlement Point names (predefined list of Hubs and Load Zones)
                 - Settlement Point types
+                - UTC and local timestamps adjusted for 15-minute intervals
                 
         Example:
             >>> client = RTSettlementPointPricesClient()
@@ -86,37 +127,31 @@ class RTSettlementPointPricesClient(ERCOTBaseClient):
                 "deliveryDateTo": delivery_date_to,
                 "settlementPoint": point
             }
-            # Get data but don't save it yet
-            response = self.api.make_request(self.ENDPOINT_PATH, params)
-            if response.status_code == 200:
-                # Process the response data
-                df = self.processor.process_response(response)
-                if not df.empty:
-                    all_data.append(df)
-                    print(f"Retrieved {len(df)} records")
-                else:
-                    print("No data returned")
+            
+            # Get raw data without UTC timestamps
+            df = self.get_data(self.ENDPOINT_PATH, self.ENDPOINT_KEY, params, 
+                               save_output=False, add_utc=False)
+            if not df.empty:
+                # Prepare timestamp columns
+                df = self._prepare_timestamps(df)
+                # Add UTC timestamps (hourly level)
+                df = self.processor.add_utc_timestamps(df)
+                # Adjust timestamps for 15-minute intervals
+                df = self._adjust_timestamps_for_intervals(df)
+                all_data.append(df)
+                print(f"Retrieved {len(df)} records")
             else:
-                print(f"Failed to get data: {response.status_code}")
+                print("No data returned")
         
         # Combine all data if we got any
         if all_data:
             final_df = pd.concat(all_data, ignore_index=True)
             print(f"\nTotal records collected: {len(final_df)}")
-            
-            # Now save the combined data
-            if self.processor.output_dir:
-                filepath = self.processor.save_to_csv(final_df, self.ENDPOINT_KEY, {})
-                print(f"\nData saved to: {filepath}")
-            
-            # Save to database if configured
-            if self.db_processor:
-                self.db_processor.save_to_database(final_df, self.ENDPOINT_KEY)
-            
+            final_df = self._save_data(final_df, self.ENDPOINT_KEY, {})
             return final_df
         else:
-            # Return empty DataFrame with expected columns if no data
-            return pd.DataFrame(columns=[
-                "deliveryDate", "hourEnding", "settlementPoint", 
-                "settlementPointPrice", "deliveryInterval"
-            ]) 
+            raise ValueError(
+                "No data was retrieved for any settlement point. "
+                "This could indicate an API error, invalid date range, "
+                "or that no data is available for the requested period."
+            ) 

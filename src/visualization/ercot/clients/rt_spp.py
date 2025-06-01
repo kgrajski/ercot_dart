@@ -30,7 +30,7 @@ class RTSettlementPointPricesViz(ERCOTBaseViz):
     
     def plot_rt_spp(self):
         """Create daily RT Settlement Point Prices visualization for each delivery date."""
-        # Get data
+        # Get data (now includes pre-processed utc_ts and local_ts columns)
         df = self.get_data(self.ENDPOINT_KEY)
         
         # Make a copy to avoid chained assignment warnings
@@ -60,13 +60,8 @@ class RTSettlementPointPricesViz(ERCOTBaseViz):
             # Filter data for this delivery date
             df_delivery = df.loc[df["delivery_date"] == delivery_date].copy()
             
-            # Create datetime column combining date, hour, and interval
-            df_delivery.loc[:, "datetime"] = df_delivery.apply(
-                lambda row: pd.to_datetime(row["deliveryDate"]) + 
-                          pd.Timedelta(hours=row["deliveryHour"]) +
-                          pd.Timedelta(minutes=(row["deliveryInterval"] - 1) * 15),
-                axis=1
-            )
+            # Use local timestamp directly (includes 15-minute interval precision)
+            df_delivery.loc[:, "datetime"] = df_delivery["local_ts"]
             
             # Sort by datetime, settlement point, and type for consistent ordering
             df_delivery = df_delivery.sort_values([
@@ -84,7 +79,7 @@ class RTSettlementPointPricesViz(ERCOTBaseViz):
             
             # Customize layout
             fig.update_layout(
-                xaxis_title="Time",
+                xaxis_title="Local Time",
                 yaxis_title="Settlement Point Price ($/MWh)",
                 legend_title="Settlement Point (Type)"
             )

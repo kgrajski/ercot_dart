@@ -24,60 +24,6 @@ class ERCOTBaseViz:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-    @staticmethod
-    def combine_date_hour(date: str, hour_ending: str | pd.Int64Dtype | int) -> pd.Timestamp:
-        """Combine ERCOT delivery date and hour ending into a timestamp.
-        
-        Handles multiple hour_ending formats:
-        - String format ("HH:MM" or "HH:MM:SS")
-        - Integer format (Int64 or int, 1-24)
-        Handles the special case of "24:00" or "24:00:00" or 24 by converting it to "00:00" of the next day.
-        
-        Args:
-            date (str): Delivery date in format "YYYY-MM-DD"
-            hour_ending (str | pd.Int64Dtype | int): Hour ending in either:
-                - String format "HH:MM" or "HH:MM:SS" (24-hour clock)
-                - Integer format (1-24)
-            
-        Returns:
-            pd.Timestamp: Combined datetime
-            
-        Example:
-            >>> combine_date_hour("2025-06-03", "24:00")
-            Timestamp('2025-06-04 00:00:00')
-            >>> combine_date_hour("2025-06-03", "24:00:00")
-            Timestamp('2025-06-04 00:00:00')
-            >>> combine_date_hour("2025-06-03", 24)
-            Timestamp('2025-06-04 00:00:00')
-            >>> combine_date_hour("2025-06-03", "14:00")
-            Timestamp('2025-06-03 14:00:00')
-            >>> combine_date_hour("2025-06-03", 14)
-            Timestamp('2025-06-03 14:00:00')
-        """
-        # Convert hour_ending to string format if it's an integer type
-        if isinstance(hour_ending, (int, pd.Int64Dtype)):
-            # Handle hour 24 case for integer input
-            if hour_ending == 24:
-                base_dt = pd.to_datetime(date)
-                return base_dt + timedelta(days=1)
-            hour_ending = f"{int(hour_ending):02d}:00"
-        elif isinstance(hour_ending, str):
-            # Handle hour 24 case for string input ("24:00" or "24:00:00")
-            if hour_ending.startswith("24:"):
-                base_dt = pd.to_datetime(date)
-                return base_dt + timedelta(days=1)
-            # If we have "HH:MM:SS" format, strip off the seconds
-            if len(hour_ending.split(":")) == 3:
-                hour_ending = ":".join(hour_ending.split(":")[:2])
-        else:
-            # If we get here, we have an unexpected type
-            print(f"Warning: Unexpected hour_ending type: {type(hour_ending)}. Value: {hour_ending}")
-            # Try to convert to string and proceed
-            hour_ending = str(hour_ending)
-            
-        # For normal hours, parse directly
-        return pd.to_datetime(f"{date} {hour_ending}")
-        
     def print_column_types(self, df: pd.DataFrame) -> None:
         """Print a formatted table of column names and their data types.
         
@@ -134,16 +80,17 @@ class ERCOTBaseViz:
                                        Defaults to True.
             
         Returns:
-            pd.DataFrame: Data for visualization
+            pd.DataFrame: Data for visualization with proper timestamp parsing
         """
         # Get latest CSV file for this endpoint
         csv_file = self.get_latest_csv(endpoint_key)
         print(f"Reading data from: {csv_file}")
         
-        # Read CSV with appropriate type handling
+        # Read CSV with proper timestamp parsing
         df = pd.read_csv(
             csv_file,
-            dtype_backend="numpy_nullable"  # Better string and nullable type handling
+            dtype_backend="numpy_nullable",  # Better string and nullable type handling
+            parse_dates=['utc_ts', 'local_ts']  # Parse timestamp columns
         )
         
         if show_types:

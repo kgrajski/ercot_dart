@@ -23,6 +23,7 @@ def main():
     today = datetime.now().strftime('%Y-%m-%d')
     # Set a starting date as n days preceding today
     n_days = 880
+    n_days = 0
     start_date = (datetime.now() - timedelta(days=n_days)).strftime('%Y-%m-%d')
 
     # Directory setup
@@ -51,21 +52,21 @@ def main():
     # Specify the hour ending we want (6:00 AM drop) for hourly reports
     hour_ending = "6:00"
     
-    print("Fetching load forecast data...")
+    print("\n ** Fetching load forecast data...")
     load_df = load_client.get_load_forecast_data(
         posted_datetime_from=start_date,
         posted_datetime_to=today,
         posted_hour_ending=hour_ending
     )
     
-    print("\nFetching solar generation data...")
+    print("\n ** Fetching solar generation data...")
     solar_df = solar_client.get_solar_generation_data(
         posted_datetime_from=start_date,
         posted_datetime_to=today,
         posted_hour_ending=hour_ending
     )
     
-    print("\nFetching wind generation data...")
+    print("\n ** Fetching wind generation data...")
     wind_df = wind_client.get_wind_generation_data(
         posted_datetime_from=start_date,
         posted_datetime_to=today,
@@ -77,13 +78,13 @@ def main():
     #
 
     # Specify the delivery date range for DAM data
-    print("\nFetching DAM Settlement Point Prices...")
+    print("\n ** Fetching DAM Settlement Point Prices...")
     dam_spp_df = dam_spp_client.get_dam_spp_data(
         delivery_date_from=start_date,
         delivery_date_to=today,
     )
     
-    print("\nFetching DAM System Lambda...")
+    print("\n ** Fetching DAM System Lambda...")
     dam_lambda_df = dam_lambda_client.get_dam_lambda_data(
         delivery_date_from=start_date,
         delivery_date_to=today,
@@ -92,8 +93,7 @@ def main():
     #
     # Fetch real-time data
     #
-    
-    print("\nFetching Real-Time Settlement Point Prices...")
+    print("\n ** Fetching Real-Time Settlement Point Prices...")
     rt_spp_df = rt_spp_client.get_rt_spp_data(
         delivery_date_from=start_date,
         delivery_date_to=today,

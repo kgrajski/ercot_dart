@@ -53,7 +53,7 @@ class WindGenerationViz(ERCOTBaseViz):
     
     def plot_wind_forecast(self):
         """Create daily wind generation forecast by geo zone visualization for each posted date."""
-        # Get data
+        # Get data (now includes pre-processed utc_ts and local_ts columns)
         df = self.get_data(self.ENDPOINT_KEY)
         
         # Make a copy to avoid chained assignment warnings
@@ -73,11 +73,8 @@ class WindGenerationViz(ERCOTBaseViz):
             # Filter data for this posted date
             df_posted = df.loc[df["posted_date"] == posted_date].copy()
             
-            # Convert deliveryDate and hourEnding to datetime using base class utility
-            df_posted.loc[:, "datetime"] = df_posted.apply(
-                lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
-                axis=1
-            )
+            # Use local timestamp directly (no manual datetime combining needed)
+            df_posted.loc[:, "datetime"] = df_posted["local_ts"]
             
             # Melt the weather zone columns into a single column
             df_melted = pd.melt(
@@ -100,7 +97,7 @@ class WindGenerationViz(ERCOTBaseViz):
             
             # Customize layout
             fig.update_layout(
-                xaxis_title="Time",
+                xaxis_title="Local Time",
                 yaxis_title="Wind Generation (MW)",
                 legend_title="GeoZone Type"
             )

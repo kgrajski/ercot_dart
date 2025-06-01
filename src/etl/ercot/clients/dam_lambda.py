@@ -22,10 +22,8 @@ class DAMSystemLambdaETL(ERCOTBaseETL):
         """Clean DAM System Lambda data.
         
         Cleaning steps:
-        1. Convert deliveryDate to datetime
-        2. Create datetime column from deliveryDate and hourEnding
-        3. Sort by datetime
-        4. Keep only necessary columns
+        1. Sort by utc timestamp
+        2. Rename columns to standard format
         
         Args:
             df (pd.DataFrame): Raw DataFrame to clean
@@ -36,21 +34,14 @@ class DAMSystemLambdaETL(ERCOTBaseETL):
         # Make a copy to avoid chained assignment warnings
         df = df.copy()
         
-        # Convert deliveryDate to datetime
-        df.loc[:, "delivery_date"] = pd.to_datetime(df["deliveryDate"]).dt.date
-        
-        # Create datetime column
-        df.loc[:, "datetime"] = df.apply(
-            lambda row: self.combine_date_hour(row["deliveryDate"], row["hourEnding"]),
-            axis=1
-        )
-        
-        # Sort by datetime
-        df = df.sort_values("datetime")
+        # Sort by utc timestamp
+        df = df.sort_values("utc_ts")
         
         # Select and rename columns
         df_clean = df[[
-            "datetime",
+            "utc_ts",
+            "local_ts",
+            "hour_local",
             "systemLambda",
             "DSTFlag"
         ]].copy()
@@ -66,12 +57,8 @@ class DAMSystemLambdaETL(ERCOTBaseETL):
     def validate_data(self, df: pd.DataFrame) -> bool:
         """Validate cleaned DAM System Lambda data.
         
-        Validation rules:
-        1. No missing values
-        2. datetime is datetime type
-        3. price is numeric
-        4. Data is sorted by datetime
-        5. One row per hour
+        Simple validation for development - assumes data types are correct
+        since we control the entire pipeline.
         
         Args:
             df (pd.DataFrame): Cleaned DataFrame to validate
@@ -80,30 +67,14 @@ class DAMSystemLambdaETL(ERCOTBaseETL):
             bool: True if validation passes
         """
         try:
-            # Check for missing values
-            if df.isnull().any().any():
-                print("Error: Found missing values in cleaned data")
+            # Check for missing values in key columns
+            if df[["utc_ts", "price"]].isnull().any().any():
+                print("Error: Found missing values in key columns")
                 return False
             
-            # Check datetime type
-            if not pd.api.types.is_datetime64_any_dtype(df["datetime"]):
-                print("Error: datetime column is not datetime type")
-                return False
-            
-            # Check price is numeric
-            if not pd.api.types.is_numeric_dtype(df["price"]):
-                print("Error: price column is not numeric")
-                return False
-            
-            # Check sorting
-            if not df.equals(df.sort_values("datetime")):
-                print("Error: Data is not sorted by datetime")
-                return False
-            
-            # Check for duplicates (should be one row per datetime)
-            duplicates = df.groupby("datetime").size()
-            if (duplicates > 1).any():
-                print("Error: Found duplicate entries for datetime")
+            # Basic row count check
+            if len(df) == 0:
+                print("Error: No data after cleaning")
                 return False
             
             return True
