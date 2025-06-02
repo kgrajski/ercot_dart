@@ -21,9 +21,9 @@ def main():
 
     # Get today's date
     today = datetime.now().strftime('%Y-%m-%d')
+    print(f"Today's date: {today}")
     # Set a starting date as n days preceding today
-    n_days = 880
-    n_days = 0
+    n_days = 31
     start_date = (datetime.now() - timedelta(days=n_days)).strftime('%Y-%m-%d')
 
     # Directory setup
@@ -52,61 +52,72 @@ def main():
     # Specify the hour ending we want (6:00 AM drop) for hourly reports
     hour_ending = "6:00"
     
-    print("\n ** Fetching load forecast data...")
-    load_df = load_client.get_load_forecast_data(
-        posted_datetime_from=start_date,
-        posted_datetime_to=today,
-        posted_hour_ending=hour_ending
-    )
+    still_need_to_fetch_data = True
+    if still_need_to_fetch_data:
+        print("\n ** Fetching load forecast data...")
+        load_df = load_client.get_load_forecast_data(
+            posted_datetime_from=start_date,
+            posted_datetime_to=today,
+            posted_hour_ending=hour_ending
+        )
+        print(f"Load forecast records: {len(load_df)}")
     
-    print("\n ** Fetching solar generation data...")
-    solar_df = solar_client.get_solar_generation_data(
-        posted_datetime_from=start_date,
-        posted_datetime_to=today,
-        posted_hour_ending=hour_ending
-    )
-    
-    print("\n ** Fetching wind generation data...")
-    wind_df = wind_client.get_wind_generation_data(
-        posted_datetime_from=start_date,
-        posted_datetime_to=today,
-        posted_hour_ending=hour_ending
-    )
+    still_need_to_fetch_data = True
+    if still_need_to_fetch_data:
+        print("\n ** Fetching solar generation data...")
+        solar_df = solar_client.get_solar_generation_data(
+            posted_datetime_from=start_date,
+            posted_datetime_to=today,
+            posted_hour_ending=hour_ending
+        )
+        print(f"Solar generation records: {len(solar_df)}")
+
+    still_need_to_fetch_data = True
+    if still_need_to_fetch_data:
+        print("\n ** Fetching wind generation data...")
+        wind_df = wind_client.get_wind_generation_data(
+            posted_datetime_from=start_date,
+            posted_datetime_to=today,
+            posted_hour_ending=hour_ending
+        )
+        print(f"Wind generation records: {len(wind_df)}")
 
     #
     # Fetch data from daily reports (e.g., DAM)
     #
-
-    # Specify the delivery date range for DAM data
-    print("\n ** Fetching DAM Settlement Point Prices...")
-    dam_spp_df = dam_spp_client.get_dam_spp_data(
-        delivery_date_from=start_date,
-        delivery_date_to=today,
-    )
     
-    print("\n ** Fetching DAM System Lambda...")
-    dam_lambda_df = dam_lambda_client.get_dam_lambda_data(
-        delivery_date_from=start_date,
-        delivery_date_to=today,
-    )
+    # Specify the delivery date range for DAM data
+    still_need_to_fetch_data = False
+    if still_need_to_fetch_data:
+        print("\n ** Fetching DAM Settlement Point Prices...")
+        dam_spp_df = dam_spp_client.get_dam_spp_data(
+            delivery_date_from=start_date,
+            delivery_date_to=today,
+        )
+        print(f"DAM Settlement Point Price records: {len(dam_spp_df)}")
+
+    still_need_to_fetch_data = False
+    if still_need_to_fetch_data:
+        print("\n ** Fetching DAM System Lambda...")
+        dam_lambda_df = dam_lambda_client.get_dam_lambda_data(
+            delivery_date_from=start_date,
+            delivery_date_to=today,
+        )
+        print(f"DAM System Lambda records: {len(dam_lambda_df)}")
 
     #
     # Fetch real-time data
     #
-    print("\n ** Fetching Real-Time Settlement Point Prices...")
-    rt_spp_df = rt_spp_client.get_rt_spp_data(
-        delivery_date_from=start_date,
-        delivery_date_to=today,
-    )
+    still_need_to_fetch_data = False
+    if still_need_to_fetch_data:
+        print("\n ** Fetching Real-Time Settlement Point Prices...")
+        rt_spp_df = rt_spp_client.get_rt_spp_data(
+            delivery_date_from=start_date,
+            delivery_date_to=today,
+        )
+        print(f"RT Settlement Point Price records: {len(rt_spp_df)}")
     
     print("\nData collection complete!")
-    print(f"Load forecast records: {len(load_df)}")
-    print(f"Solar generation records: {len(solar_df)}")
-    print(f"Wind generation records: {len(wind_df)}")
-    print(f"DAM Settlement Point Price records: {len(dam_spp_df)}")
-    print(f"DAM System Lambda records: {len(dam_lambda_df)}")
-    print(f"RT Settlement Point Price records: {len(rt_spp_df)}")
-
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")
 

@@ -26,7 +26,7 @@ def main():
 
     # Identify the input directory by date
     raw_data_date = datetime.now().strftime('%Y-%m-%d')
-    raw_data_date = "2025-05-31"
+    raw_data_date = "2025-06-02"
     data_dir = os.path.join(project_dir, "data/raw", raw_data_date)
 
     # Set up output directory

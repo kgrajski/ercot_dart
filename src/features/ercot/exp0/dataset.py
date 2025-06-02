@@ -58,22 +58,25 @@ class Exp0Dataset(ExpDataset):
         dam_df = self.raw_data["dam_spp"]
         
         # Ensure datetime is in proper format
-        rt_df["datetime"] = pd.to_datetime(rt_df["datetime"])
-        dam_df["datetime"] = pd.to_datetime(dam_df["datetime"])
+        rt_df["utc_ts"] = pd.to_datetime(rt_df["utc_ts"])
+        dam_df["utc_ts"] = pd.to_datetime(dam_df["utc_ts"])
         
-        # Merge RT and DAM data on datetime and location
+        # Merge RT and DAM data on utc_ts and location
         # Using left merge to keep all RT records
         result_df = rt_df.merge(
-            dam_df[["datetime", "location", "price"]],
-            on=["datetime", "location"],
+            dam_df[["utc_ts", "location", "price"]],
+            on=["utc_ts", "location"],
             how="left"
         )
         
         # Rename the DAM price column for clarity
         result_df = result_df.rename(columns={"price": "dam_spp_price"})
-        
+
+        # Rename the RT price column for clarity
+        result_df = result_df.rename(columns={"price_mean": "rt_spp_price"})
+
         # Calculate DART (RT - DAM difference)
-        result_df["dart"] = (result_df["price_mean"] - result_df["dam_spp_price"]).round(6)
+        result_df["dart"] = (result_df["rt_spp_price"] - result_df["dam_spp_price"]).round(6)
         
         # Create DART visualization
         plot_dart_by_location(

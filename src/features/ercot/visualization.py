@@ -15,7 +15,7 @@ def plot_dart_by_location(
     
     Args:
         df: DataFrame containing DART data with columns:
-           - datetime: Timestamp for the observation
+           - local_ts: Timestamp for the observation in local time zone
            - location: Settlement point location (e.g., "LZ_HOUSTON")
            - location_type: Type of settlement point
            - price_mean: RT price mean
@@ -35,7 +35,7 @@ def plot_dart_by_location(
     # Create the main DART plot
     fig = px.line(
         df,
-        x="datetime",
+        x="local_ts",
         y="dart",
         color="point_identifier",
         title=f"DART Price Differences by Location{title_suffix}"

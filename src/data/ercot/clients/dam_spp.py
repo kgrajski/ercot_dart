@@ -14,6 +14,25 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
     ENDPOINT_PATH = "np4-190-cd/dam_stlmnt_pnt_prices"
     DEFAULT_HOUR_ENDING = "14:00"  # Default to 2 PM drop
     
+    # List of settlement points we want to collect (same as RT SPP)
+    SETTLEMENT_POINTS = [
+        "HB_BUSAVG",   # Bus Average Hub
+        "HB_HOUSTON",   # Houston Hub
+        "HB_HUBAVG",    # Hub Average Hub
+        "HB_NORTH",     # North Hub
+        "HB_PAN",       # Panhandle Hub
+        "HB_SOUTH",     # South Hub
+        "HB_WEST",      # West Hub
+        "LZ_AEN",       # AEN Load Zone
+        "LZ_CPS",       # CPS Load Zone
+        "LZ_HOUSTON",   # Houston Load Zone
+        "LZ_LCRA",      # LCRA Load Zone
+        "LZ_NORTH",     # North Load Zone
+        "LZ_RAYBN",     # Rayburn Load Zone
+        "LZ_SOUTH",     # South Load Zone
+        "LZ_WEST"       # West Load Zone
+    ]
+    
     def _build_query_params(self, current_date: datetime, params: Dict) -> Dict:
         """Override to handle delivery date based parameters for DAM endpoints.
         
@@ -33,6 +52,10 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
         current_params['deliveryDateFrom'] = formatted_date
         current_params['deliveryDateTo'] = formatted_date
         
+        # Add settlement point if specified in params
+        if 'settlementPoint' in params:
+            current_params['settlementPoint'] = params['settlementPoint']
+        
         return current_params
     
     def get_dam_spp_data(self, delivery_date_from: str, delivery_date_to: str) -> pd.DataFrame:
@@ -46,7 +69,7 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
             pandas.DataFrame: DataFrame containing DAM Settlement Point Prices data including:
                 - Settlement Point prices
                 - Delivery dates and times
-                - Settlement Point names
+                - Settlement Point names (predefined list of Hubs and Load Zones)
                 
         Example:
             >>> client = DAMSettlementPointPricesClient()
@@ -55,10 +78,35 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
             ...     delivery_date_to="2024-01-02"
             ... )
         """
-        # Set up parameters - use delivery dates for both iteration and API parameters
-        params = {
-            "deliveryDateFrom": delivery_date_from,    # Used for both iteration and API
-            "deliveryDateTo": delivery_date_to         # Used for both iteration and API
-        }
+        all_data = []
         
-        return self.get_data(self.ENDPOINT_PATH, self.ENDPOINT_KEY, params) 
+        # Get data for each settlement point in our predefined list
+        for point in self.SETTLEMENT_POINTS:
+            print(f"\nGetting data for {point}")
+            params = {
+                "deliveryDateFrom": delivery_date_from,
+                "deliveryDateTo": delivery_date_to,
+                "settlementPoint": point
+            }
+            
+            # Get data for this specific settlement point
+            df = self.get_data(self.ENDPOINT_PATH, self.ENDPOINT_KEY, params, 
+                               save_output=False, add_utc=True)
+            if not df.empty:
+                all_data.append(df)
+                print(f"Retrieved {len(df)} records")
+            else:
+                print("No data returned")
+        
+        # Combine all data if we got any
+        if all_data:
+            final_df = pd.concat(all_data, ignore_index=True)
+            print(f"\nTotal records collected: {len(final_df)}")
+            final_df = self._save_data(final_df, self.ENDPOINT_KEY, {})
+            return final_df
+        else:
+            raise ValueError(
+                "No data was retrieved for any settlement point. "
+                "This could indicate an API error, invalid date range, "
+                "or that no data is available for the requested period."
+            ) 

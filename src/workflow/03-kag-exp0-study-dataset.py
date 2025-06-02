@@ -23,7 +23,7 @@ def main():
     # - dam_spp_clean.csv: Day-Ahead Settlement Point Prices
     #                      Used as features (previous day's price expectations)
     # - dam_system_lambda_clean.csv: Day-Ahead System Lambda
-    #                                Used as features (system-wide price expectations)
+    #                      Used as features (system-wide price expectations)
     # - load_forecast_clean.csv: Load Forecast by weather zone
     #                           Used as features (demand expectations)
     # - wind_power_gen_clean.csv: Wind Generation forecast by region
@@ -32,7 +32,7 @@ def main():
     #                              Used as features (supply expectations)
 
     # Identify the input directory by date
-    processed_data_date = "2025-05-29"
+    processed_data_date = "2025-06-02"
     input_dir = os.path.join(project_dir, "data/processed", processed_data_date)
     output_dir = os.path.join(project_dir, "data/studies/exp0", processed_data_date)
     os.makedirs(output_dir, exist_ok=True)
