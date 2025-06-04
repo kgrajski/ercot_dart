@@ -41,11 +41,21 @@ class ERCOTBaseETL:
         print(f"Reading raw data from: {csv_file}")
         
         # Read CSV with appropriate type handling, automatically parsing timestamp columns
-        return pd.read_csv(
+        df = pd.read_csv(
             csv_file,
-            dtype_backend="numpy_nullable",  # Better string and nullable type handling
-            parse_dates=['local_ts', 'utc_ts']  # Parse timestamp columns
+            dtype_backend="numpy_nullable"
         )
+        
+        # Debug: Check what we actually have
+        print(f"Column names: {list(df.columns)}")
+        print(f"Sample utc_ts values: {df['utc_ts'].head(2).tolist()}")
+        
+        # Explicitly convert datetime columns
+        df['utc_ts'] = pd.to_datetime(df['utc_ts'])
+        df['local_ts'] = pd.to_datetime(df['local_ts'])
+        
+        print(f"After conversion - utc_ts type: {type(df['utc_ts'][0])}")
+        return df
     
     def save_clean_data(self, df: pd.DataFrame, endpoint_key: str):
         """Save cleaned data to CSV and database.
@@ -122,71 +132,34 @@ class ERCOTBaseETL:
         return None
     
     def validate_temporal_completeness(self, df: pd.DataFrame) -> bool:
-        """Validate that every hour between earliest and latest utc_ts has at least one row.
-        
-        This method checks for temporal gaps in the data by ensuring that
-        every hour in the time range is represented by at least one record.
-        Useful for detecting missing hours in time series data.
+        """Validate that every date has all 24 hours (0-23).
         
         Args:
-            df (pd.DataFrame): DataFrame to validate (must have utc_ts column)
+            df (pd.DataFrame): DataFrame with utc_ts column
             
         Returns:
-            bool: True if no temporal gaps found, False otherwise
+            bool: True if all dates have complete 24-hour coverage
         """
-        try:
-            if df.empty:
-                print("Warning: Cannot validate temporal completeness on empty DataFrame")
-                return True
-                
-            if 'utc_ts' not in df.columns:
-                print("Error: DataFrame missing required utc_ts column for temporal validation")
-                return False
-            
-            # Extract hourly timestamps (truncate to hour)
-            hourly_timestamps = df['utc_ts'].dt.floor('h')
-            
-            # Find earliest and latest hours
-            earliest_hour = hourly_timestamps.min()
-            latest_hour = hourly_timestamps.max()
-            
-            # Generate complete hour range
-            expected_hours = pd.date_range(
-                start=earliest_hour, 
-                end=latest_hour, 
-                freq='h'
-            )
-            
-            # Get unique hours present in data
-            actual_hours = set(hourly_timestamps.unique())
-            expected_hours_set = set(expected_hours)
-            
-            # Find missing hours
-            missing_hours = expected_hours_set - actual_hours
-            
-            if missing_hours:
-                missing_count = len(missing_hours)
-                total_expected = len(expected_hours)
-                print(f"Error: Temporal completeness validation failed")
-                print(f"Missing {missing_count} hours out of {total_expected} expected hours")
-                print(f"Time range: {earliest_hour} to {latest_hour}")
-                
-                # Show first few missing hours as examples
-                sorted_missing = sorted(list(missing_hours))[:5]
-                print(f"First missing hours: {[str(h) for h in sorted_missing]}")
-                if missing_count > 5:
-                    print(f"... and {missing_count - 5} more")
-                    
-                return False
-            
-            # Success case
-            total_hours = len(expected_hours)
-            print(f"Temporal completeness validated: {total_hours} hours from {earliest_hour} to {latest_hour}")
-            return True
-            
-        except Exception as e:
-            print(f"Temporal validation error: {str(e)}")
+        
+        # Extract date and hour components  
+        df_temp = df.copy()
+        df_temp['date'] = df_temp['utc_ts'].dt.date
+        df_temp['hour'] = df_temp['utc_ts'].dt.hour
+        
+        # Group by date and count unique hours
+        date_hour_counts = df_temp.groupby('date')['hour'].nunique()
+        
+        # Check if any date has less than 24 hours
+        incomplete_dates = date_hour_counts[date_hour_counts != 24]
+        
+        if len(incomplete_dates) > 0:
+            print(f"Error: Found {len(incomplete_dates)} dates with incomplete hours")
+            for date, hour_count in incomplete_dates.items():
+                print(f"  {date}: {hour_count} hours")
             return False
+        
+        print(f"Temporal completeness validated: {len(date_hour_counts)} dates with complete 24-hour coverage")
+        return True
     
     def validate_data(self, df: pd.DataFrame) -> bool:
         """Validate cleaned data meets requirements.

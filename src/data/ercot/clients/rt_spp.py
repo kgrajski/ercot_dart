@@ -29,6 +29,11 @@ class RTSettlementPointPricesClient(ERCOTBaseClient):
         "LZ_SOUTH",     # South Load Zone
         "LZ_WEST"       # West Load Zone
     ]
+
+       # Focus list of settlement points we want to collect
+    SETTLEMENT_POINTS = [
+        "LZ_HOUSTON",   # Houston Load Zone
+    ]
     
     def _build_query_params(self, current_date, params):
         """Override to handle delivery date based parameters for RT endpoints.

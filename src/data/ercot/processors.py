@@ -36,119 +36,95 @@ class ERCOTProcessor:
         self.output_dir = Path(output_dir) if output_dir else None
         if self.output_dir:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            
-    def add_utc_timestamps(self, df: pd.DataFrame, interval_minutes: Optional[pd.Series] = None) -> pd.DataFrame:
-        """Add canonical timestamp columns following ERCOT standards.
         
-        Takes ERCOT delivery date and hour ending and converts to canonical UTC timestamp.
-        Handles different hour ending formats and DST transitions properly.
+
+    def _set_start_delivery_hour(self, hour_ending):
+        """Convert ERCOT hour ending to an internal working delivery hour starting as an integer.
         
-        Hour ending examples in ERCOT's canonical format:
-        - "01:00" or "01:00:00" -> the hour ending at 01:00
-        - 1 or 1.0 -> the hour ending at 01:00
-        - "24:00" or 24 -> the hour ending at 24:00 (same day)
+        ERCOT uses various formats for hour ending, including:
+        - 1-24 integer (rt_spp, solar_generation, wind_generation, etc.)       
+        - 01:00 - 24:00 (dam_spp, dam_system_lambda, load_forecast, etc.)
+
+        Convert the hour ending to an integer and then subtract one hour to get the delivery starting hour.`
+
+        The return value is an integer.
+        """
         
-        For sub-hourly data (e.g., RT SPP with 15-minute intervals):
-        - interval_minutes specifies minutes to add to the base hour
-        - For example, interval 2 in hour ending 01:00 would be 01:15
+        if isinstance(hour_ending, str):
+            hour_str = hour_ending.strip()
+            if ":" in hour_str:
+                start_delivery_hour = int(hour_str.split(":")[0]) - 1
+                return start_delivery_hour
+        elif isinstance(hour_ending, int):
+            hour_num = int(hour_ending)
+            if 1 <= hour_num <= 24:
+                start_delivery_hour = hour_num - 1
+                return start_delivery_hour
+            else:
+                raise ValueError(f"Hour {hour_num} not in valid range 1-24")
+        else:
+            raise ValueError(f"hour_ending must be a string or integer")
+
+    
+    def _localize_with_dst(self, row) -> pd.Timestamp:
+        """Handle timezone localization with explicit DST logic.
         
         Args:
-            df (pd.DataFrame): DataFrame with raw timestamp data
-            Must contain:
-            - deliveryDate: ERCOT delivery date (string or datetime)
-            - hourEnding: Hour ending in various formats
-            - DSTFlag: Boolean DST indicator
-            interval_minutes (pd.Series, optional): Minutes to add to base hour
-                                                  Used for sub-hourly data
-            
+            row: DataFrame row containing "local_ts", "hour_ending_std", and "DSTFlag"
+        
         Returns:
-            pd.DataFrame: DataFrame with canonical timestamp columns:
-            - local_ts: America/Chicago timezone-aware (NaT for ambiguous times)
-            - utc_ts: UTC timestamp timezone-naive (canonical reference)
-            - hour_local: Local hour (preserved for business logic)
-        """
-        df = df.copy()
-        
-        if 'deliveryDate' not in df.columns or 'hourEnding' not in df.columns:
-            raise ValueError("DataFrame must contain 'deliveryDate' and 'hourEnding' columns")
-        
-        if 'DSTFlag' not in df.columns:
-            raise ValueError("DataFrame must contain 'DSTFlag' column")
-        
-        # Standardize hourEnding format
-        def standardize_hour_ending(hour_ending):
-            """Convert various hour ending formats to HH:00 format."""
-            if pd.isna(hour_ending):
-                return None
-                
-            # Convert to string and strip any whitespace
-            he_str = str(hour_ending).strip()
+            pd.Timestamp: Timezone-aware timestamp in America/Chicago
             
-            # Handle integer-like formats (1, 1.0, etc.)
-            try:
-                he_int = int(float(he_str))
-                if not 1 <= he_int <= 24:
-                    raise ValueError(f"Hour ending must be between 1 and 24, got {he_int}")
-                # Convert hour 24 to hour 0
-                return "00:00" if he_int == 24 else f"{he_int:02d}:00"
-            except ValueError:
-                pass
-                
-            # Handle HH:MM or HH:MM:SS format
-            if ':' in he_str:
-                parts = he_str.split(':')
-                hour = int(parts[0])
-                if not 0 <= hour <= 24:
-                    raise ValueError(f"Hour ending must be between 0 and 24, got {hour}")
-                # Convert hour 24 to hour 0
-                return "00:00" if hour == 24 else f"{hour:02d}:00"
-                
-            raise ValueError(f"Unrecognized hour ending format: {hour_ending}")
+        Notes:
+            - Only ERCOT hour ending "02:00" is ambiguous during Fall DST transition
+            - DSTFlag=True means this is the repeated hour (standard time)
+            - DSTFlag=False means this is the first occurrence (DST time)
+        """
+        naive_ts = row["start_delivery_datetime"]
         
-        df['hour_ending_std'] = df['hourEnding'].apply(standardize_hour_ending)
+        # Only hour ending 1 is ambiguous during Fall DST
+        if row["start_delivery_hour"] == 1:
+            # DSTFlag=True means this is the repeated hour (standard time)
+            is_dst = not row["DSTFlag"] 
+            return naive_ts.tz_localize("America/Chicago", ambiguous=is_dst, nonexistent="shift_forward")
+        else:
+            return naive_ts.tz_localize("America/Chicago", ambiguous=False, nonexistent="shift_forward")
+
+   
+    def add_utc_timestamps(self, df: pd.DataFrame, interval_minutes: Optional[pd.Series] = None) -> pd.DataFrame:
+        """Add standardized UTC timestamps and relevant metadata to DataFrame.
         
-        # Convert deliveryDate to datetime if it's a string
-        if not pd.api.types.is_datetime64_any_dtype(df['deliveryDate']):
-            df['deliveryDate'] = pd.to_datetime(df['deliveryDate'])
-        
-        # For hour 24, we need to add one day to the delivery date
-        df['date_str'] = df.apply(
-            lambda row: (row['deliveryDate'] + pd.Timedelta(days=1)).strftime('%Y-%m-%d') 
-            if row['hour_ending_std'] == "00:00" 
-            else row['deliveryDate'].strftime('%Y-%m-%d'),
-            axis=1
-        )
-        
-        # Create local timestamp from delivery date and standardized hour ending
-        df['local_ts'] = pd.to_datetime(df['date_str'] + ' ' + df['hour_ending_std'])
+        """
+
+        # For the conversion to UTC we need to work with the delivery starting hour.
+        df["start_delivery_hour"] = df["hourEnding"].apply(self._set_start_delivery_hour)
+        print("\n\n", df.head())
+
+        # Calculate delivery start datetime by adding start_delivery_hour to deliveryDate
+        df["start_delivery_datetime"] = df.apply(
+            lambda row: row["deliveryDate"] + pd.Timedelta(hours=row["start_delivery_hour"]), axis=1)
+        print("\n\n", df.head())
         
         # Add interval minutes if provided (before timezone localization)
         if interval_minutes is not None:
-            df['local_ts'] = df['local_ts'] + pd.to_timedelta(interval_minutes, unit='minutes')
+            df["start_delivery_datetime"] = df["start_delivery_datetime"] + pd.to_timedelta(interval_minutes, unit="minutes")
+        print("\n\n", df.head())
         
-        # Localize to America/Chicago using DST flag
-        # For fall back (ambiguous times), use DST flag to determine correct time
-        # For spring forward (nonexistent times), will result in NaT
-        df['local_ts'] = df.apply(
-            lambda row: pd.Timestamp(row['local_ts']).tz_localize(
-                'America/Chicago',
-                ambiguous=row['DSTFlag'],  # Use DSTFlag for ambiguous times
-                nonexistent='NaT'  # Mark nonexistent times during spring forward as NaT
-            ),
-            axis=1
-        )
-        
-        # Extract hour_local before UTC conversion (for business logic)
-        df['hour_local'] = df['local_ts'].dt.hour
+        # Apply DST-aware timezone localization row by row for clarity
+        df["local_ts"] = df.apply(self._localize_with_dst, axis=1)
+        print("\n\n", df.head())
         
         # Convert to canonical UTC timestamp (timezone-naive since UTC is inherently timezone-agnostic)
-        df['utc_ts'] = df['local_ts'].dt.tz_convert('UTC').dt.tz_localize(None)
+        df["utc_ts"] = df["local_ts"].dt.tz_convert("UTC")
+        print("\n\n", df.head())
         
         # Drop temporary columns
-        df = df.drop(columns=['hour_ending_std', 'date_str'])
+        df = df.drop(columns=["start_delivery_datetime", "start_delivery_hour"])
+        print("\n\n", df.head())
         
         return df
-            
+
+
     def json_to_df(self, response_data: Dict) -> pd.DataFrame:
         """Convert JSON response data to DataFrame.
         
@@ -199,6 +175,7 @@ class ERCOTProcessor:
                 
         return df
     
+
     def process_response(self, response) -> pd.DataFrame:
         """Process a single API response to DataFrame.
         
@@ -220,6 +197,7 @@ class ERCOTProcessor:
             
         return self.json_to_df(json_response)
     
+
     def process_data(self, data: List[Dict]) -> pd.DataFrame:
         """Process a list of raw data records to DataFrame.
         
@@ -235,6 +213,7 @@ class ERCOTProcessor:
         # Create DataFrame
         return pd.DataFrame(data)
     
+
     def save_to_csv(self, df: pd.DataFrame, endpoint_key: str, params: Dict) -> Path:
         """Save DataFrame to CSV file.
         
@@ -261,6 +240,7 @@ class ERCOTProcessor:
             
         return filepath
     
+
     def verify_data(self, df: pd.DataFrame, endpoint_key: str, csv_file: Optional[Path] = None):
         """Verify and report on the processed data.
         
@@ -270,24 +250,24 @@ class ERCOTProcessor:
             csv_file (Path, optional): Path to saved CSV file
         """
         # Verify canonical timestamp columns
-        required_cols = {'utc_ts', 'local_ts', 'hour_local'}
+        required_cols = {"utc_ts", "local_ts", "hour_local"}
         missing = required_cols - set(df.columns)
         if missing:
             print(f"\nWarning: Missing canonical timestamp columns: {missing}")
         
         # Verify timezone awareness for local timestamps
-        if 'local_ts' in df.columns:
-            tz = df['local_ts'].dt.tz
-            if not (tz and tz.zone == 'America/Chicago'):
+        if "local_ts" in df.columns:
+            tz = df["local_ts"].dt.tz
+            if not (tz and tz.zone == "America/Chicago"):
                 print("\nWarning: local_ts is not America/Chicago timezone-aware")
         
         # Check for ambiguous times (expected during DST transitions)
-        if 'local_ts' in df.columns:
-            ambiguous = df[df['local_ts'].isna()]
+        if "local_ts" in df.columns:
+            ambiguous = df[df["local_ts"].isna()]
             if not ambiguous.empty:
                 print(f"\nFound {len(ambiguous)} ambiguous timestamps (expected during DST transitions)")
                 print("Example ambiguous times:")
-                display_cols = ['utc_ts', 'local_ts', 'hour_local']
+                display_cols = ["utc_ts", "local_ts", "hour_local"]
                 print(ambiguous[display_cols].head())
         
         # Print basic information

@@ -14,7 +14,7 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
     ENDPOINT_PATH = "np4-190-cd/dam_stlmnt_pnt_prices"
     DEFAULT_HOUR_ENDING = "14:00"  # Default to 2 PM drop
     
-    # List of settlement points we want to collect (same as RT SPP)
+    # Full list of settlement points we want to collect
     SETTLEMENT_POINTS = [
         "HB_BUSAVG",   # Bus Average Hub
         "HB_HOUSTON",   # Houston Hub
@@ -31,6 +31,11 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
         "LZ_RAYBN",     # Rayburn Load Zone
         "LZ_SOUTH",     # South Load Zone
         "LZ_WEST"       # West Load Zone
+    ]
+
+    # Focus list of settlement points we want to collect
+    SETTLEMENT_POINTS = [
+        "LZ_HOUSTON",   # Houston Load Zone
     ]
     
     def _build_query_params(self, current_date: datetime, params: Dict) -> Dict:
