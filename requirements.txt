@@ -2,6 +2,8 @@
 requests>=2.31.0  # For ERCOT API access
 tqdm>=4.66.0     # For progress bars
 pandas>=2.0.0    # For data processing
+numpy>=1.24.0    # For numerical computing
+scipy>=1.10.0    # For statistical functions (Q-Q plots, distribution fitting)
 python-dotenv>=1.0.0  # For loading environment variables
 plotly>=6.1.1    # For data visualization
 
