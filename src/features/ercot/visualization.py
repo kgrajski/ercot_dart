@@ -677,9 +677,9 @@ def plot_dart_slt_bimodal(
     # Save bimodal statistics
     if bimodal_stats:
         bimodal_stats_df = pd.DataFrame(bimodal_stats)
-        stats_filename = f"dart_slt_bimodal_stats_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        bimodal_stats_df.to_csv(stats_filename, index=False)
-        print(f"Statistics saved to {stats_filename}")
+        stats_path = output_dir / "dart_slt_bimodal_stats.csv"
+        bimodal_stats_df.to_csv(stats_path, index=False)
+        print(f"DART_SLT bimodal statistics saved to: {stats_path}")
 
 
 def plot_dart_slt_cumulative(
