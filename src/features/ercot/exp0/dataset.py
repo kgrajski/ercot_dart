@@ -2,7 +2,7 @@
 
 import pandas as pd
 from ..exp_dataset import ExpDataset
-from ..visualization import plot_dart_by_location, plot_dart_distributions, plot_dart_boxplots, plot_dart_qqplots
+from ..visualization import plot_dart_by_location, plot_dart_distributions, plot_dart_boxplots, plot_dart_qqplots, plot_dart_slt_bimodal, plot_dart_slt_cumulative, plot_dart_slt_by_weekday, plot_dart_slt_by_hour
 
 
 class Exp0Dataset(ExpDataset):
@@ -78,6 +78,22 @@ class Exp0Dataset(ExpDataset):
         # Calculate DART (RT - DAM difference)
         result_df["dart"] = (result_df["rt_spp_price"] - result_df["dam_spp_price"]).round(6)
 
+        # Apply signed log transformation (single source of truth)
+        result_df["dart_slt"] = self.signed_log_transform(result_df["dart"])
+        
+        # Create day of week from local_ts (business time) using apply for mixed timezone handling
+        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
+        result_df["day_of_week"] = result_df["local_ts"].apply(
+            lambda x: pd.to_datetime(x).dayofweek if pd.notna(x) else None
+        )
+
+        # Create hour of day from local_ts (business time) using apply for mixed timezone handling
+        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
+        # Add one hour so that the interpretation is consistent with ERCOT hour means end of delivery hour
+        result_df["end_of_hour"] = result_df["local_ts"].apply(
+            lambda x: pd.to_datetime(x).hour + 1 if pd.notna(x) else None
+        )
+
         # Create comprehensive DART visualizations
         
         # 1. Time series comparison (raw vs transformed)
@@ -103,6 +119,34 @@ class Exp0Dataset(ExpDataset):
         
         # 4. Q-Q plots for normality assessment
         plot_dart_qqplots(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+        
+        # 5. Bimodal analysis of signed log transformed DART
+        plot_dart_slt_bimodal(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 6. Cumulative analysis of signed log transformed DART
+        plot_dart_slt_cumulative(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 7. Day-of-week analysis of signed log transformed DART
+        plot_dart_slt_by_weekday(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 8. Hour-of-day analysis of signed log transformed DART
+        plot_dart_slt_by_hour(
             df=result_df,
             output_dir=self.output_dir,
             title_suffix=" - Exp0"
