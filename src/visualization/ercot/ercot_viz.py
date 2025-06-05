@@ -90,7 +90,7 @@ class ERCOTBaseViz:
         df = pd.read_csv(
             csv_file,
             dtype_backend="numpy_nullable",  # Better string and nullable type handling
-            parse_dates=['utc_ts', 'local_ts']  # Parse timestamp columns
+            parse_dates=["utc_ts", "local_ts"]  # Parse timestamp columns
         )
         
         if show_types:

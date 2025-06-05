@@ -2,7 +2,7 @@
 
 import pandas as pd
 from ..exp_dataset import ExpDataset
-from ..visualization import plot_dart_by_location
+from ..visualization import plot_dart_by_location, plot_dart_distributions, plot_dart_boxplots, plot_dart_qqplots
 
 
 class Exp0Dataset(ExpDataset):
@@ -35,7 +35,7 @@ class Exp0Dataset(ExpDataset):
             input_dir=input_dir,
             output_dir=output_dir,
             input_files=input_files,
-            experiment_id='exp0'
+            experiment_id="exp0"
         )
     
     def generate_dependent_vars(self) -> pd.DataFrame:
@@ -77,14 +77,37 @@ class Exp0Dataset(ExpDataset):
 
         # Calculate DART (RT - DAM difference)
         result_df["dart"] = (result_df["rt_spp_price"] - result_df["dam_spp_price"]).round(6)
+
+        # Create comprehensive DART visualizations
         
-        # Create DART visualization
+        # 1. Time series comparison (raw vs transformed)
         plot_dart_by_location(
             df=result_df,
             output_dir=self.output_dir,
             title_suffix=" - Exp0"
         )
         
+        # 2. Distribution analysis with normal fit and percentiles
+        plot_dart_distributions(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+        
+        # 3. Box plots for quartile analysis by location
+        plot_dart_boxplots(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+        
+        # 4. Q-Q plots for normality assessment
+        plot_dart_qqplots(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
         return result_df
     
     def generate_independent_vars(self) -> pd.DataFrame:

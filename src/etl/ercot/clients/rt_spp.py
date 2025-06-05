@@ -61,7 +61,6 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         df_clean = df[[
             "utc_ts",
             "local_ts",
-            "hour_local",
             "settlementPoint",
             "settlementPointType",
             "deliveryHour",
@@ -94,11 +93,13 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         
         Transformation steps:
         1. Create hourly_utc_ts by truncating utc_ts to hour
-        2. Group by hourly_utc_ts, location, and location_type
-        3. Calculate mean and standard deviation of prices across the 4 intervals
-        4. Round statistics to 6 decimal places
-        5. Sort by utc timestamp, location, and type
-        6. Reorder columns appropriately
+        2. Create hourly local timestamp by truncating to hour while preserving timezone
+        3. Extract hour_local from local timestamp
+        4. Group by hourly_utc_ts, location, and location_type
+        5. Calculate mean and standard deviation of prices across the 4 intervals
+        6. Round statistics to 6 decimal places
+        7. Sort by utc timestamp, location, and type
+        8. Reorder columns appropriately
         
         Note: Each hour has 4 intervals with different timestamps
         (e.g., 01:00, 01:15, 01:30, 01:45). We truncate to hour to group these.
@@ -111,21 +112,23 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         """
         # Make a copy to avoid chained assignment warnings
         df = df.copy()
+
+        # Drop dst_flag column
+        df = df.drop(columns=["dst_flag"])
         
         # Create hourly utc timestamp by truncating to hour
-        df.loc[:, "hourly_utc_ts"] = df["utc_ts"].dt.floor('h')
-        
-        # Also create hourly local timestamp for display purposes
-        df.loc[:, "hourly_local_ts"] = df["local_ts"].dt.floor('h')
-        
-        # Group by hour, location, and type
+        df.loc[:, "hour_utc_ts"] = df["utc_ts"].dt.floor("h")
+
+        # Create hourly local timestamp by truncating to hour while preserving timezone
+        # local_ts is object dtype due to mixed timezones, so we apply truncation to each Timestamp
+        df.loc[:, "hour_local_ts"] = df["local_ts"].apply(lambda ts: ts.floor("h"))
+
+        # Group by hour_utc_ts, location, and type
         df_hourly = df.groupby([
-            "hourly_utc_ts",
-            "hourly_local_ts",
-            "hour_local",
+            "hour_utc_ts",
+            "hour_local_ts",
             "location",
             "location_type",
-            "dst_flag"
         ]).agg({
             "price": ["mean", "std"]
         }).reset_index()
@@ -134,14 +137,12 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         df_hourly.columns = [
             "utc_ts",
             "local_ts",
-            "hour_local", 
             "location",
             "location_type",
-            "dst_flag",
             "price_mean",
             "price_std"
         ]
-        
+
         # Round the statistics to 6 decimal places
         df_hourly.loc[:, "price_mean"] = df_hourly["price_mean"].round(6)
         df_hourly.loc[:, "price_std"] = df_hourly["price_std"].round(6)
@@ -152,7 +153,11 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
             "location",
             "location_type"
         ])
-        
+
+        # Create hour_local column by extracting hour from hour_local_ts, but by applying
+        # on a row by row basis.  Needed due to mixed timezones in local_ts.
+        df_hourly.loc[:, "hour_local"] = df_hourly["local_ts"].apply(lambda ts: ts.hour)
+
         # Reorder columns to match other clients
         df_hourly = df_hourly[[
             "utc_ts",
@@ -162,9 +167,8 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
             "location_type",
             "price_mean",
             "price_std",
-            "dst_flag"
         ]]
-        
+
         return df_hourly
     
     def validate_data(self, df: pd.DataFrame) -> bool:

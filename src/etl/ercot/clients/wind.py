@@ -70,7 +70,7 @@ class WindGenerationETL(ERCOTBaseETL):
         # Melt geographical zone columns into rows
         df_melted = pd.melt(
             df,
-            id_vars=["posted_datetime", "utc_ts", "local_ts", "hour_local", "DSTFlag"],
+            id_vars=["posted_datetime", "utc_ts", "local_ts", "DSTFlag"],
             value_vars=self.GEOGRAPHICAL_ZONES,
             var_name="location",
             value_name="wind_generation"

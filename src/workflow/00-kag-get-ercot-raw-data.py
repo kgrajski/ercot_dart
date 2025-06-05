@@ -20,11 +20,11 @@ def main():
     print("*** " + script_name + " - START ***")
 
     # Get today's date
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime("%Y-%m-%d")
     print(f"Today's date: {today}")
     # Set a starting date as n days preceding today
-    n_days = 884
-    start_date = (datetime.now() - timedelta(days=n_days)).strftime('%Y-%m-%d')
+    n_days = 885
+    start_date = (datetime.now() - timedelta(days=n_days)).strftime("%Y-%m-%d")
 
     # Directory setup
     root_dir = "/Users/kag/Documents/Projects"
@@ -37,12 +37,12 @@ def main():
     db_path = os.path.join(output_dir, "ercot_data.db")
 
     # Data collection flags - set to True/False to control what data to fetch
-    fetch_load_data = False
-    fetch_solar_data = False
-    fetch_wind_data = False
-    fetch_dam_spp_data = False
+    fetch_load_data = True
+    fetch_solar_data = True
+    fetch_wind_data = True
+    fetch_dam_spp_data = True
     fetch_dam_lambda_data = True
-    fetch_rt_spp_data = False
+    fetch_rt_spp_data = True
 
     # Specify the hour ending we want (6:00 AM drop) for hourly reports
     hour_ending = "6:00"

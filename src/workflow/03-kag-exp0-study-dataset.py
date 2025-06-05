@@ -32,7 +32,7 @@ def main():
     #                              Used as features (supply expectations)
 
     # Identify the input directory by date
-    processed_data_date = "2025-06-03"
+    processed_data_date = "2025-06-04"
     input_dir = os.path.join(project_dir, "data/processed", processed_data_date)
     output_dir = os.path.join(project_dir, "data/studies/exp0", processed_data_date)
     os.makedirs(output_dir, exist_ok=True)

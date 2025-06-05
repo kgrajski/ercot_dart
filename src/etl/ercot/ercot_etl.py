@@ -51,8 +51,8 @@ class ERCOTBaseETL:
         print(f"Sample utc_ts values: {df['utc_ts'].head(2).tolist()}")
         
         # Explicitly convert datetime columns
-        df['utc_ts'] = pd.to_datetime(df['utc_ts'])
-        df['local_ts'] = pd.to_datetime(df['local_ts'])
+        df["utc_ts"] = pd.to_datetime(df["utc_ts"])
+        df["local_ts"] = pd.to_datetime(df["local_ts"])
         
         print(f"After conversion - utc_ts type: {type(df['utc_ts'][0])}")
         return df
@@ -64,7 +64,7 @@ class ERCOTBaseETL:
             df (pd.DataFrame): Cleaned DataFrame to save
             endpoint_key (str): The endpoint identifier
         """
-        # Create filename with endpoint key and 'clean' indicator
+        # Create filename with endpoint key and "clean" indicator
         filename = f"{endpoint_key}_clean.csv"
         filepath = self.output_dir / filename
         
@@ -83,7 +83,7 @@ class ERCOTBaseETL:
             df (pd.DataFrame): Transformed DataFrame to save
             endpoint_key (str): The endpoint identifier
         """
-        # Create filename with endpoint key and 'transformed' indicator
+        # Create filename with endpoint key and "transformed" indicator
         filename = f"{endpoint_key}_transformed.csv"
         filepath = self.output_dir / filename
         
@@ -132,7 +132,7 @@ class ERCOTBaseETL:
         return None
     
     def validate_temporal_completeness(self, df: pd.DataFrame) -> bool:
-        """Validate that every date has all 24 hours (0-23).
+        """Validate that every date has all 24 UTC hours.
         
         Args:
             df (pd.DataFrame): DataFrame with utc_ts column
@@ -143,20 +143,37 @@ class ERCOTBaseETL:
         
         # Extract date and hour components  
         df_temp = df.copy()
-        df_temp['date'] = df_temp['utc_ts'].dt.date
-        df_temp['hour'] = df_temp['utc_ts'].dt.hour
+        df_temp["date"] = df_temp["utc_ts"].dt.date
+        df_temp["hour"] = df_temp["utc_ts"].dt.hour
         
         # Group by date and count unique hours
-        date_hour_counts = df_temp.groupby('date')['hour'].nunique()
+        date_hour_counts = df_temp.groupby("date")["hour"].nunique()
+
+        # Given the maximum and minimum dates, calculate expected number of dates and check if correct
+        min_date = min(df_temp["date"])
+        max_date = max(df_temp["date"])
+        expected_days = (max_date - min_date).days + 1
+        actual_days = len(df_temp["date"].unique())
+        
+        print(f"Date range: {min_date} to {max_date}")
+        print(f"Expected days: {expected_days}, Actual days: {actual_days}")
+        
+        if actual_days != expected_days:
+            print(f"Error: Found {actual_days} dates, expected {expected_days} dates")
+            return False
         
         # Check if any date has less than 24 hours
         incomplete_dates = date_hour_counts[date_hour_counts != 24]
         
         if len(incomplete_dates) > 0:
-            print(f"Error: Found {len(incomplete_dates)} dates with incomplete hours")
             for date, hour_count in incomplete_dates.items():
-                print(f"  {date}: {hour_count} hours")
-            return False
+                if (date == min(df_temp["date"])) or (date == max(df_temp["date"])):
+                    print(f"Warning: {date}: {hour_count} hours")
+                    return_flag = True
+                else:
+                    print(f"Error: Found {len(incomplete_dates)} dates with incomplete hours")
+                    return_flag = False
+            return return_flag
         
         print(f"Temporal completeness validated: {len(date_hour_counts)} dates with complete 24-hour coverage")
         return True
@@ -177,7 +194,7 @@ class ERCOTBaseETL:
         """Execute the full ETL process.
         
         Returns:
-            pd.DataFrame: Cleaned and validated data
+            pd.DataFrame: Cleaned and validated data, or transformed data if transformation is implemented
         """
         # Get raw data
         df_raw = self.get_raw_data(self.ENDPOINT_KEY)
@@ -202,4 +219,4 @@ class ERCOTBaseETL:
             self.save_transformed_data(df_transformed, self.ENDPOINT_KEY)
             return df_transformed
         
-        return df_clean 
+        return df_clean

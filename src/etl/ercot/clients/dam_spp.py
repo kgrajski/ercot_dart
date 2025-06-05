@@ -46,7 +46,6 @@ class DAMSettlementPointPricesETL(ERCOTBaseETL):
         df_clean = df[[
             "utc_ts",
             "local_ts",
-            "hour_local", 
             "settlementPoint",
             "settlementPointPrice",
             "DSTFlag"

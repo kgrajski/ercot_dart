@@ -41,7 +41,6 @@ class DAMSystemLambdaETL(ERCOTBaseETL):
         df_clean = df[[
             "utc_ts",
             "local_ts",
-            "hour_local",
             "systemLambda",
             "DSTFlag"
         ]].copy()

@@ -49,17 +49,17 @@ class DAMSettlementPointPricesClient(ERCOTBaseClient):
             dict: Query parameters for the specific date
         """
         # For DAM endpoints, we use the date directly as the delivery date
-        formatted_date = current_date.strftime('%Y-%m-%d')
+        formatted_date = current_date.strftime("%Y-%m-%d")
         
         # Create parameters dict
         current_params = params.copy()
         # Use the same date for both from and to since we want that specific day's data
-        current_params['deliveryDateFrom'] = formatted_date
-        current_params['deliveryDateTo'] = formatted_date
+        current_params["deliveryDateFrom"] = formatted_date
+        current_params["deliveryDateTo"] = formatted_date
         
         # Add settlement point if specified in params
-        if 'settlementPoint' in params:
-            current_params['settlementPoint'] = params['settlementPoint']
+        if "settlementPoint" in params:
+            current_params["settlementPoint"] = params["settlementPoint"]
         
         return current_params
     

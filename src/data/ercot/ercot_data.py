@@ -252,7 +252,7 @@ class ERCOTBaseClient:
                     total_records = meta.get('totalRecords')
                     
                     # Extract data from first page
-                    data = response_json.get('data', [])
+                    data = response_json.get("data", [])
                     if data:
                         all_data.extend(data)
                     

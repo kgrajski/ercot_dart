@@ -2,4 +2,4 @@
 
 from .data import LoadForecastClient, SolarGenerationClient
 
-__all__ = ['LoadForecastClient', 'SolarGenerationClient']
+__all__ = ["LoadForecastClient", "SolarGenerationClient"]

@@ -1,5 +1,5 @@
-"""ERCOT feature generation package."""
+"""ERCOT features package initialization."""
 
 from .exp_dataset import ExpDataset
 
-__all__ = ['ExpDataset'] 
+__all__ = ["ExpDataset"] 

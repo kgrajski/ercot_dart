@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional
 import pandas as pd
+import numpy as np
 from abc import ABC, abstractmethod
 
 
@@ -58,13 +59,53 @@ class ExpDataset(ABC):
                 raise FileNotFoundError(f"Required input file not found: {file_path}")
             
             # Store data with a clean identifier (remove file extension and suffixes)
-            identifier = file_name.split('.')[0]  # Remove extension
-            identifier = identifier.split('_clean')[0]  # Remove _clean suffix
-            identifier = identifier.split('_transformed')[0]  # Remove _transformed suffix
+            identifier = file_name.split(".")[0]  # Remove extension
+            identifier = identifier.split("_clean")[0]  # Remove _clean suffix
+            identifier = identifier.split("_transformed")[0]  # Remove _transformed suffix
             
             self.raw_data[identifier] = pd.read_csv(file_path)
             
         return self.raw_data
+    
+    @staticmethod
+    def signed_log_transform(data):
+        """Apply signed logarithm transformation to price differences.
+        
+        The signed logarithm transformation is defined as:
+        z = sign(x) * log(1 + |x|)
+        
+        This transformation:
+        - Preserves the sign of the input (positive stays positive, negative stays negative)
+        - Compresses large values using logarithmic scaling
+        - Maps zero to zero
+        - Is symmetric: signed_log(-x) = -signed_log(x)
+        - Properly handles missing values (NaN)
+        
+        This is particularly useful for electricity price differences (like DART)
+        which can have extreme values and benefit from outlier-resistant transformations.
+        
+        Args:
+            data: pandas Series or scalar value
+            
+        Returns:
+            pandas Series (if input is Series) or scalar with same structure as input
+            
+        Example:
+            # For a single value
+            transformed = ExpDataset.signed_log_transform(15.7)
+            
+            # For a pandas Series (e.g., DART column)
+            df["dart_transformed"] = ExpDataset.signed_log_transform(df["dart"])
+        """
+        if isinstance(data, pd.Series):
+            # Pandas-native approach with proper NaN handling
+            return data.apply(lambda x: np.sign(x) * np.log(1 + abs(x)) if pd.notna(x) else np.nan)
+        else:
+            # Handle scalar values
+            if pd.notna(data):
+                return np.sign(data) * np.log(1 + abs(data))
+            else:
+                return np.nan
     
     @abstractmethod
     def generate_dependent_vars(self) -> pd.DataFrame:
@@ -90,11 +131,11 @@ class ExpDataset(ABC):
         """
         pass
     
-    def save_dataset(self, dataset_type: str = 'study'):
+    def save_dataset(self, dataset_type: str = "study"):
         """Save the experiment dataset.
         
         Args:
-            dataset_type: Type of dataset to save ('study', 'train', 'test', etc.)
+            dataset_type: Type of dataset to save ("study", "train", "test", etc.)
         """
         if self.dependent_vars is None or self.independent_vars is None:
             raise ValueError("Must generate dependent and independent variables before saving")
@@ -113,11 +154,11 @@ class ExpDataset(ABC):
         self.study_dataset.to_csv(filepath, index=False)
         print(f"Saved {dataset_type} dataset to: {filepath}")
         
-    def load_dataset(self, dataset_type: str = 'study') -> pd.DataFrame:
+    def load_dataset(self, dataset_type: str = "study") -> pd.DataFrame:
         """Load a previously saved experiment dataset.
         
         Args:
-            dataset_type: Type of dataset to load ('study', 'train', 'test', etc.)
+            dataset_type: Type of dataset to load ("study", "train", "test", etc.)
             
         Returns:
             The loaded dataset as a DataFrame

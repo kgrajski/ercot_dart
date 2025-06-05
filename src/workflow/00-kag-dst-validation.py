@@ -20,7 +20,7 @@ def main():
     print("*** " + script_name + " - START ***")
 
     # Set start date
-    end_date = datetime.strptime("2024-11-03", "%Y-%m-%d")
+    end_date = datetime.strptime("2024-03-11", "%Y-%m-%d")
     print(type(end_date))
     # Set a starting date as n days preceding start_date
     n_days = 2
@@ -31,7 +31,7 @@ def main():
     root_dir = "/Users/kag/Documents/Projects"
     project_dir = os.path.join(root_dir, "ercot_dart")
     data_dir = os.path.join(project_dir, "data/raw")
-    output_dir = os.path.join(data_dir, end_date.strftime('%Y-%m-%d'))
+    output_dir = os.path.join(data_dir, end_date.strftime("%Y-%m-%d"))
     os.makedirs(output_dir, exist_ok=True)
 
     # Set up database path

@@ -59,7 +59,7 @@ class LoadForecastETL(ERCOTBaseETL):
         # Melt weather zone columns into rows
         df_melted = pd.melt(
             df,
-            id_vars=["posted_datetime", "utc_ts", "local_ts", "hour_local", "DSTFlag"],
+            id_vars=["posted_datetime", "utc_ts", "local_ts", "DSTFlag"],
             value_vars=self.WEATHER_ZONES,
             var_name="location",
             value_name="load_forecast"
