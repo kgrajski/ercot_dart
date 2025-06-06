@@ -2190,7 +2190,7 @@ def plot_dart_slt_sign_daily_heatmap(
             z=pivot_data.values,
             x=pivot_data.columns,
             y=pivot_data.index,
-            colorscale='RdBu',  # Red-Blue diverging scale (Red=negative dominant, Blue=positive dominant)
+            colorscale='RdBu_r',  # Red-Blue diverging scale (Red=positive dominant/losses, Blue=negative dominant/gains)
             zmid=0.5,  # Center the colorscale at 0.5 (balanced)
             zmin=0,
             zmax=1,
@@ -2208,7 +2208,7 @@ def plot_dart_slt_sign_daily_heatmap(
         # Update layout
         fig.update_layout(
             title={
-                "text": f"DART Daily Cycle Heatmap - {point}{title_suffix}<br><sub>Positivity rate by hour and day of week (Blue=mostly positive, Red=mostly negative)</sub>",
+                "text": f"DART Daily Cycle Heatmap - {point}{title_suffix}<br><sub>Positivity rate by hour and day of week<br>Resource Generator POV: Red=RT&gt;DAM (losses); Blue=RT&lt;DAM (gains)</sub>",
                 "x": 0.5,
                 "xanchor": "center"
             },
@@ -3507,3 +3507,190 @@ def plot_dart_slt_kmeans_bimodal(
             print(f"  Statistics saved to: {stats_path}")
     
     print(f"K-means bimodal analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_average_daily_heatmap(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create daily cycle heatmap of average DART values for each settlement point.
+    
+    Creates heatmaps showing the average DART values (RT - DAM price differences) 
+    by hour of day and day of week. This reveals the actual magnitude and direction 
+    of price differences, complementing the positivity rate analysis.
+    
+    Construction approach:
+    1. Use raw DART values (not signed log transformed)
+    2. Group by hour of day (1-24) and day of week
+    3. Compute mean DART for each cell (influenced by spikes as intended)
+    4. Visualize as heatmap with diverging color scale centered at zero
+    
+    Creates separate plots for each settlement point showing:
+    - X-axis: Day of week (Monday-Sunday)
+    - Y-axis: Hour of day (1-24, ending hour)
+    - Color: Average DART value ($/MWh) (Red=negative, Blue=positive, White=neutral)
+    
+    Args:
+        df: DataFrame containing dart column, time columns, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart", "day_of_week", "end_of_hour", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating average DART daily cycle heatmaps for {len(unique_points)} settlement points")
+    
+    # Create day of week mapping for better labels
+    day_mapping = {
+        0: "Monday",
+        1: "Tuesday", 
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday"
+    }
+    
+    df["weekday"] = df["day_of_week"].map(day_mapping)
+    day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Remove NaN values
+        point_clean = point_data.dropna(subset=["dart", "weekday", "end_of_hour"]).copy()
+        
+        if len(point_clean) < 24:  # Need sufficient data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Processing {point}: {len(point_clean)} data points")
+        
+        # Group by hour and day of week, compute average DART values
+        heatmap_data = point_clean.groupby(["end_of_hour", "weekday"])["dart"].agg([
+            'mean',  # average DART value
+            'count', # sample size
+            'std',   # standard deviation
+            'min',   # minimum value
+            'max'    # maximum value
+        ]).reset_index()
+        
+        # Rename columns for clarity
+        heatmap_data.columns = ["hour", "weekday", "avg_dart", "sample_count", "std_dart", "min_dart", "max_dart"]
+        
+        # Create pivot table for heatmap
+        pivot_data = heatmap_data.pivot(index="hour", columns="weekday", values="avg_dart")
+        
+        # Reorder columns to standard week order and ensure all hours are present
+        pivot_data = pivot_data.reindex(columns=day_order, fill_value=None)
+        all_hours = list(range(1, 25))  # 1 to 24 (ending hours)
+        pivot_data = pivot_data.reindex(index=all_hours, fill_value=None)
+        
+        # Determine color scale range - symmetric around zero to show magnitude properly
+        data_values = pivot_data.values.flatten()
+        data_values = data_values[~pd.isna(data_values)]  # Remove NaN values
+        if len(data_values) > 0:
+            max_abs_value = max(abs(data_values.min()), abs(data_values.max()))
+            color_range = [-max_abs_value, max_abs_value]
+        else:
+            color_range = [-10, 10]  # Default range
+        
+        # Create the heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot_data.values,
+            x=pivot_data.columns,
+            y=pivot_data.index,
+            colorscale='RdBu_r',  # Red-Blue diverging scale (Red=positive DART/losses, Blue=negative DART/gains)
+            zmid=0,  # Center the colorscale at 0 (no price difference)
+            zmin=color_range[0],
+            zmax=color_range[1],
+            hoverongaps=False,
+            hovertemplate='<b>%{y}:00 %{x}</b><br>Avg DART: $%{z:.2f}/MWh<br><extra></extra>',
+            colorbar=dict(
+                title="Average DART ($/MWh)",
+                tickformat=".1f"
+            )
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"Average DART Daily Cycle Heatmap - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Average price difference (RT - DAM) by hour and day<br>Resource Generator POV: Red=RT&gt;DAM (losses); Blue=RT&lt;DAM (gains)</sub>",
+                "x": 0.5,
+                "xanchor": "center",
+                "font": {"size": 16, "color": PROFESSIONAL_COLORS['text']}
+            },
+            xaxis_title="Day of Week",
+            yaxis_title="Hour of Day (Ending Hour)",
+            height=600,
+            width=900,  # Slightly wider to accommodate color bar
+            xaxis=dict(
+                tickmode="array",
+                tickvals=day_order,
+                ticktext=day_order,
+                title_font=dict(color=PROFESSIONAL_COLORS['text']),
+                tickfont=dict(color=PROFESSIONAL_COLORS['text'])
+            ),
+            yaxis=dict(
+                tickmode="linear",
+                tick0=1,
+                dtick=1,
+                autorange="reversed",  # Hour 1 at top, 24 at bottom
+                title_font=dict(color=PROFESSIONAL_COLORS['text']),
+                tickfont=dict(color=PROFESSIONAL_COLORS['text'])
+            ),
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
+        
+        # Save individual plot
+        output_path = location_dir / f"dart_average_daily_heatmap_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_average_daily_heatmap_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
+        
+        # Save detailed statistics
+        heatmap_stats = heatmap_data.copy()
+        heatmap_stats["Settlement_Point"] = point
+        
+        # Reorder columns for better readability
+        heatmap_stats = heatmap_stats[[
+            "Settlement_Point", "weekday", "hour", "sample_count", 
+            "avg_dart", "std_dart", "min_dart", "max_dart"
+        ]]
+        
+        stats_path = location_dir / f"dart_average_daily_heatmap_stats_{safe_filename}.csv"
+        heatmap_stats.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Average DART daily cycle heatmap analysis complete: {len(unique_points)} settlement points processed")

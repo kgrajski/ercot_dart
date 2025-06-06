@@ -85,10 +85,23 @@ Power spectrum of the SLT series:
 
 ![Sign Heatmap](reports/figures/initial_dart_houston/dart_slt_sign_daily_heatmap_LZ_HOUSTON_LZ.png)
 
-Hourly sign probability by day of week shows:
+Hourly sign probability by day of week and hour shows:
 - Consistently **negative DARTs** during business hours
+  - Counterintuitive?  Could make sense if DAM forecasts tend to be conservative?
 - Higher **positive DART** probability overnight and early morning
 - Weekends display flatter patterns
+
+![DART Average Heatmap](reports/figures/initial_dart_houston/dart_average_daily_heatmap_LZ_HOUSTON_LZ.png)
+
+Hourly average DART by day of week and hour shows:
+- Interpreted from the perspective of a **resource generator bidding into DAM**
+  - **Positive DART (RT > DAM)** → **loss**: the generator misses potential upside by locking in a lower DAM price (red)
+  - **Negative DART (RT < DAM)** → **gain**: the generator benefits from locking in a higher DAM price ahead of a lower real-time outcome (blue)
+- Interpret very carefully, because we're looking at an aggregate view
+  - Timespan of interest: **early weekday mornings**
+  - **Gains** are more sporadic and tend to cluster overnight or late at night
+  - Highlights the **risk asymmetry** and the value of selective hedging
+  - These are first impressions only.  Do not trade based on this figure.
 
 ---
 

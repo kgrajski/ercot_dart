@@ -20,6 +20,7 @@ from ..visualization import (
     plot_dart_slt_sign_transitions,
     plot_dart_slt_kmeans_unimodal,
     plot_dart_slt_kmeans_bimodal,
+    plot_dart_average_daily_heatmap,
 )
 
 
@@ -233,6 +234,13 @@ class Exp0Dataset(ExpDataset):
             output_dir=self.output_dir,
             title_suffix=" - Exp0",
             max_k=10
+        )
+
+        # 18. Average DART daily cycle heatmap analysis
+        plot_dart_average_daily_heatmap(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
         )
 
         return result_df
