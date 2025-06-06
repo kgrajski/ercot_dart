@@ -38,7 +38,7 @@ This helps reveal structure while preserving magnitude asymmetry.
 Separate histograms of positive and negative SLT values (shown as absolute):
 - Reveal clear right-skew in both distributions
 - Indicate heavy-tailed, non-Gaussian behavior
-- Suggest different dynamics for upward vs downward deviations
+- Suggest different dynamics for positive vs negative deviations
 
 ---
 
