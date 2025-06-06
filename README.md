@@ -2,7 +2,9 @@
 
 ## First Look: ERCOT Real-Time vs DAM Settlement Point Prices Using LZ (Houston) as an Example
 
-This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics. The dataset spans **January 1, 2024 through June 5, 2025**, and was downloaded from ERCOT’s Public API.
+This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics.
+
+The dataset spans **January 1, 2024 through June 5, 2025**, and was downloaded via the [ERCOT Public API](https://www.ercot.com/mp/data-products).
 
 ---
 
@@ -10,10 +12,16 @@ This initial analysis explores the hourly differences between ERCOT real-time ma
 
 ![DART Time Series](reports/figures/initial_dart_houston/dart_by_location_LZ_HOUSTON_LZ.png)
 
-Raw and Signed Log Transformed (SLT) DART series both show:
+The raw and transformed DART series show:
 - Frequent, high-amplitude price excursions
-- Short-lived spikes, typically lasting 1–3 hours
-- SLT transformation reveals structure while compressing extremes
+- Short-lived spikes (typically 1–3 hours)
+- The **Signed Log Transform (SLT)** retains directional information while compressing extreme values:
+  
+  \[
+  \text{SLT}(x) = \text{sign}(x) \cdot \log(1 + |x|)
+  \]
+
+This helps reveal structure while preserving magnitude asymmetry.
 
 ---
 
@@ -21,48 +29,48 @@ Raw and Signed Log Transformed (SLT) DART series both show:
 
 ![Raw vs SLT Distributions](reports/figures/initial_dart_houston/dart_distributions_LZ_HOUSTON_LZ.png)
 
-The raw DART distribution is sharply peaked near zero with long tails. The SLT view:
-- Symmetrizes the data
-- Highlights heavy tails and potential regime separation
-- Lends itself to further density- or cluster-based analyses
+- The raw DART distribution is sharply peaked near zero with long tails.
+- SLT symmetrizes and normalizes magnitude for clearer tail inspection and segmentation.
 
 ---
 
 ![Bimodal Histogram](reports/figures/initial_dart_houston/dart_slt_bimodal_LZ_HOUSTON_LZ.png)
 
-A closer look at SLT-positive and SLT-negative distributions (absolute-valued) reveals:
-- Right-skewed histograms in both directions
-- Departure from normality despite moderately good fit in log-space
-- Significant asymmetry between positive and negative excursions
+Separate histograms of positive and negative SLT values (shown as absolute):
+- Reveal clear right-skew in both distributions
+- Indicate heavy-tailed, non-Gaussian behavior
+- Suggest different dynamics for upward vs downward deviations
 
 ---
 
-## Cluster Analysis
+## K-Means Cluster Analysis
 
-To further characterize DART behaviors by intensity:
+To identify natural regime groupings:
 
 ![KMeans Bimodal](reports/figures/initial_dart_houston/dart_slt_kmeans_bimodal_LZ_HOUSTON_LZ.png)
 
-Separate K-means cluster analyses for positive and negative SLT values suggest:
-- **Three clusters** are a natural segmentation for both sides
-- Cluster centers capture mild, moderate, and extreme DART conditions
-
-![KMeans Unimodal](reports/figures/initial_dart_houston/dart_slt_kmeans_unimodal_LZ_HOUSTON_LZ.png)
-
-When considered unimodally (signed SLT values together), **two clusters** dominate:
-- A likely regime switch between negative and positive pricing
-- Useful for coarse predictive modeling or early warning indicators
+Using K-means clustering on **positive and negative SLT magnitudes separately**:
+- Optimal segmentation is **three clusters** on each side
+- These correspond to mild, moderate, and severe pricing deviations
 
 ---
 
-## Moving Window Dynamics
+![KMeans Unimodal](reports/figures/initial_dart_houston/dart_slt_kmeans_unimodal_LZ_HOUSTON_LZ.png)
+
+When clustering the **signed SLT values together**:
+- Optimal **two-cluster solution** aligns with DART polarity (positive vs negative)
+- Suggests sign alone captures the dominant regime division
+
+---
+
+## Moving Window Behavior
 
 ![Rolling Statistics](reports/figures/initial_dart_houston/dart_slt_moving_window_stats_LZ_HOUSTON_LZ.png)
 
-Using 168-hour (weekly) rolling windows:
-- Standard deviation, skewness, and kurtosis exhibit temporal clustering
-- Some intervals show high volatility and non-Gaussian shapes
-- Positive sign rate fluctuates seasonally, with sustained deviation from 50%
+Using a 168-hour rolling window:
+- Standard deviation, skewness, and kurtosis vary significantly over time
+- Indicates changing volatility and shape
+- Positive rate drifts seasonally, suggesting persistent market bias
 
 ---
 
@@ -70,36 +78,43 @@ Using 168-hour (weekly) rolling windows:
 
 ![SLT Spectrum](reports/figures/initial_dart_houston/dart_slt_power_spectrum_LZ_HOUSTON_LZ.png)
 
-SLT power spectrum highlights:
-- A strong peak near **1 cycle/day** (diurnal behavior)
-- Secondary structure across multiple frequencies, suggesting load/congestion interaction
+Power spectrum of the SLT series:
+- Strong peak at **1 cycle/day**, confirming diurnal periodicity
+- Additional harmonic content indicates layered temporal structure
+
+---
 
 ![Sign Heatmap](reports/figures/initial_dart_houston/dart_slt_sign_daily_heatmap_LZ_HOUSTON_LZ.png)
 
-Hourly positivity rates by day-of-week show:
-- **Persistent negativity** during business hours
-- More positive DARTs overnight and early morning
-- Saturdays and Sundays are more balanced
+Hourly sign probability by day of week shows:
+- Consistently **negative DARTs** during business hours
+- Higher **positive DART** probability overnight and early morning
+- Weekends display flatter patterns
+
+---
 
 ![Sign Spectrum](reports/figures/initial_dart_houston/dart_slt_sign_power_spectrum_LZ_HOUSTON_LZ.png)
 
-Binary sign sequence analysis confirms:
-- **Strong diurnal periodicity**
-- Reaffirmed structure in the direction of the DART signal, not just magnitude
+Spectral analysis of the DART sign sequence shows:
+- Strong daily cycle
+- Temporal structure in sign alternation, not just magnitude
 
 ---
 
 ## Sign Transition Behavior
 
-![Sign Transition Summary](reports/figures/initial_dart_houston/dart_slt_sign_transitions_LZ_HOUSTON_LZ.png)
+![Sign Transitions](reports/figures/initial_dart_houston/dart_slt_sign_transitions_LZ_HOUSTON_LZ.png)
 
-Key insights from sign-transition analysis:
-- High persistence in both positive and negative DART signs
-- Most regime changes are short but non-random
-- Elevated switching at **1AM, 9AM, and 11PM**, aligned with operational or market shifts
-
----
-
-These findings offer a strong empirical foundation for DART forecasting, risk-aware bidding, and congestion-sensitivity modeling. Future work will move beyond descriptive analytics into probabilistic classification, time-series modeling, and ultimately prescriptive bidding support.
+Sign transition summary:
+- ~80% persistence in sign from hour to hour
+- Most runs last just 1–3 hours, but longer runs do occur
+- Transitions often cluster at **1AM, 9AM, and 11PM**, possibly linked to load ramping or forecast updates
 
 ---
+
+## Next Steps
+
+These insights establish a strong foundation for downstream forecasting and classification models. They suggest:
+- Rich temporal and categorical structure in DART behavior
+- Usefulness of regime classification over raw regression
+- Opportunities for integrating time-aware and probability-
