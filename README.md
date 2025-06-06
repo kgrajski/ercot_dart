@@ -16,12 +16,11 @@ The raw and transformed DART series show:
 - Frequent, high-amplitude price excursions
 - Short-lived spikes (typically 1–3 hours)
 - The **Signed Log Transform (SLT)** retains directional information while compressing extreme values:
-  
-  \[
-  \text{SLT}(x) = \text{sign}(x) \cdot \log(1 + |x|)
-  \]
+
+  `SLT(x) = sign(x) * log(1 + abs(x))`
 
 This helps reveal structure while preserving magnitude asymmetry.
+
 
 ---
 
