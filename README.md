@@ -1,7 +1,7 @@
 # ercot_dart
 
 ## Wholesale Energy Markets Data Exploration
-## ERCOT Real-Time vs DAM Settlement Point Prices Using LZ (Houston) as an Example
+## ERCOT Real-Time vs DAM Settlement Point Prices (DART) Using LZ (Houston) as an Example
 
 This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics.
 
