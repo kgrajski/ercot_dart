@@ -211,6 +211,10 @@ def plot_dart_by_location(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(point_data)} data points")
         
         # Create subplot with 2 rows
@@ -279,12 +283,17 @@ def plot_dart_by_location(
         fig.update_xaxes(title_text="Time", row=2, col=1)
         
         # Save individual plot
-        output_path = output_dir / f"dart_by_location_{safe_filename}.html"
+        output_path = location_dir / f"dart_by_location_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
         
+        # Save PNG version
+        png_path = location_dir / f"dart_by_location_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
+        
         # Save individual data file
-        data_path = output_dir / f"dart_by_location_{safe_filename}.csv"
+        data_path = location_dir / f"dart_by_location_{safe_filename}.csv"
         point_data.to_csv(data_path, index=False)
         print(f"  Data saved to: {data_path}")
     
@@ -342,6 +351,10 @@ def plot_dart_distributions(
             
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(dart_clean)} raw, {len(dart_slt_clean)} transformed data points")
         
@@ -447,14 +460,19 @@ def plot_dart_distributions(
         fig.update_xaxes(title_text="Signed Log DART", row=2, col=1)
         
         # Save individual plot
-        output_path = output_dir / f"dart_distributions_{safe_filename}.html"
+        output_path = location_dir / f"dart_distributions_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_distributions_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual statistics
         if point_stats:
             stats_df = pd.DataFrame(point_stats)
-            stats_path = output_dir / f"dart_distribution_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_distribution_stats_{safe_filename}.csv"
             stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     
@@ -504,6 +522,10 @@ def plot_dart_boxplots(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(point_data)} data points")
         
@@ -564,9 +586,14 @@ def plot_dart_boxplots(
         fig.update_xaxes(title_text="Data Type", row=1, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_boxplots_{safe_filename}.html"
+        output_path = location_dir / f"dart_boxplots_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_boxplots_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual box plot statistics
         raw_stats = point_data["dart"].describe()
@@ -599,7 +626,7 @@ def plot_dart_boxplots(
         }]
         
         box_stats_df = pd.DataFrame(box_stats)
-        stats_path = output_dir / f"dart_boxplot_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_boxplot_stats_{safe_filename}.csv"
         box_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -660,6 +687,10 @@ def plot_dart_qqplots(
             
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(dart_clean)} raw, {len(dart_slt_clean)} transformed data points")
         
@@ -755,14 +786,19 @@ def plot_dart_qqplots(
         fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_qqplots_{safe_filename}.html"
+        output_path = location_dir / f"dart_qqplots_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_qqplots_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual Q-Q statistics
         if qq_stats:
             qq_stats_df = pd.DataFrame(qq_stats)
-            stats_path = output_dir / f"dart_qqplot_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_qqplot_stats_{safe_filename}.csv"
             qq_stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     
@@ -827,6 +863,10 @@ def plot_dart_slt_bimodal(
             
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(negative_values)} negative, {len(positive_values)} positive values")
         
@@ -936,14 +976,19 @@ def plot_dart_slt_bimodal(
         fig.update_xaxes(title_text="Signed-Log DART", row=1, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_bimodal_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_bimodal_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_bimodal_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual bimodal statistics
         if bimodal_stats:
             bimodal_stats_df = pd.DataFrame(bimodal_stats)
-            stats_path = output_dir / f"dart_slt_bimodal_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_slt_bimodal_stats_{safe_filename}.csv"
             bimodal_stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     
@@ -1010,6 +1055,10 @@ def plot_dart_slt_cumulative(
             
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(negative_values)} negative values, {len(positive_values)} positive values")
         
@@ -1113,14 +1162,19 @@ def plot_dart_slt_cumulative(
         fig.update_xaxes(title_text="Signed-Log DART", row=2, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_cumulative_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_cumulative_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_cumulative_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual cumulative statistics
         if cumulative_stats:
             cumulative_stats_df = pd.DataFrame(cumulative_stats)
-            stats_path = output_dir / f"dart_slt_cumulative_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_slt_cumulative_stats_{safe_filename}.csv"
             cumulative_stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     
@@ -1207,6 +1261,10 @@ def plot_dart_slt_by_weekday(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
         
         # Calculate statistics by weekday for both datasets
@@ -1286,9 +1344,14 @@ def plot_dart_slt_by_weekday(
         fig.update_xaxes(categoryorder="array", categoryarray=day_order)
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_by_weekday_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_by_weekday_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_by_weekday_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Store comprehensive statistics for CSV output
         weekday_stats = []
@@ -1309,7 +1372,7 @@ def plot_dart_slt_by_weekday(
         
         # Save individual weekday statistics
         weekday_stats_df = pd.DataFrame(weekday_stats)
-        stats_path = output_dir / f"dart_slt_weekday_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_weekday_stats_{safe_filename}.csv"
         weekday_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -1382,6 +1445,10 @@ def plot_dart_slt_by_hour(
             
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
         
@@ -1468,9 +1535,14 @@ def plot_dart_slt_by_hour(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_by_hour_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_by_hour_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_by_hour_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Store comprehensive statistics for CSV output
         hourly_stats = []
@@ -1491,7 +1563,7 @@ def plot_dart_slt_by_hour(
         
         # Save individual hourly statistics
         hourly_stats_df = pd.DataFrame(hourly_stats)
-        stats_path = output_dir / f"dart_slt_hourly_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_hourly_stats_{safe_filename}.csv"
         hourly_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -1557,6 +1629,10 @@ def plot_dart_slt_power_spectrum(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(point_clean)} data points")
         
         try:
@@ -1612,9 +1688,14 @@ def plot_dart_slt_power_spectrum(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_power_spectrum_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_power_spectrum_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_power_spectrum_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Store statistics for this settlement point using the computed results
         point_stats = {
@@ -1633,7 +1714,7 @@ def plot_dart_slt_power_spectrum(
         
         # Save individual power spectrum statistics
         spectrum_stats_df = pd.DataFrame([point_stats])
-        stats_path = output_dir / f"dart_slt_power_spectrum_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_power_spectrum_stats_{safe_filename}.csv"
         spectrum_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -1712,6 +1793,10 @@ def plot_dart_slt_power_spectrum_bimodal(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
         
@@ -1812,14 +1897,19 @@ def plot_dart_slt_power_spectrum_bimodal(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_power_spectrum_bimodal_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_power_spectrum_bimodal_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_power_spectrum_bimodal_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save individual bimodal power spectrum statistics
         if bimodal_spectrum_stats:
             bimodal_spectrum_stats_df = pd.DataFrame(bimodal_spectrum_stats)
-            stats_path = output_dir / f"dart_slt_power_spectrum_bimodal_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_slt_power_spectrum_bimodal_stats_{safe_filename}.csv"
             bimodal_spectrum_stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     
@@ -1898,6 +1988,10 @@ def plot_dart_slt_sign_power_spectrum(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(point_clean)} sign sequence data points")
         
         try:
@@ -1951,9 +2045,14 @@ def plot_dart_slt_sign_power_spectrum(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_sign_power_spectrum_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_sign_power_spectrum_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_sign_power_spectrum_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=600, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Store statistics for this settlement point using the computed results
         point_stats = {
@@ -1975,7 +2074,7 @@ def plot_dart_slt_sign_power_spectrum(
         
         # Save individual sign sequence power spectrum statistics
         spectrum_stats_df = pd.DataFrame([point_stats])
-        stats_path = output_dir / f"dart_slt_sign_power_spectrum_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_sign_power_spectrum_stats_{safe_filename}.csv"
         spectrum_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -2062,6 +2161,10 @@ def plot_dart_slt_sign_daily_heatmap(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(point_clean)} data points")
         
         # Group by hour and day of week, compute positivity rate
@@ -2127,9 +2230,14 @@ def plot_dart_slt_sign_daily_heatmap(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_sign_daily_heatmap_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_sign_daily_heatmap_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_sign_daily_heatmap_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save detailed statistics
         heatmap_stats = heatmap_data.copy()
@@ -2143,7 +2251,7 @@ def plot_dart_slt_sign_daily_heatmap(
             "positive_count", "negative_count", "positivity_rate", "negative_rate"
         ]]
         
-        stats_path = output_dir / f"dart_slt_sign_daily_heatmap_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_sign_daily_heatmap_stats_{safe_filename}.csv"
         heatmap_stats.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -2208,6 +2316,10 @@ def plot_dart_slt_spectrogram(
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing {point}: {len(point_clean)} data points")
         
         try:
@@ -2271,9 +2383,14 @@ def plot_dart_slt_spectrogram(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_spectrogram_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_spectrogram_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_spectrogram_{safe_filename}.png"
+        fig.write_image(png_path, width=1200, height=800, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save spectrogram statistics
         spectrogram_stats = [{
@@ -2290,7 +2407,7 @@ def plot_dart_slt_spectrogram(
         }]
         
         spectrogram_stats_df = pd.DataFrame(spectrogram_stats)
-        stats_path = output_dir / f"dart_slt_spectrogram_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_spectrogram_stats_{safe_filename}.csv"
         spectrogram_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -2356,6 +2473,10 @@ def plot_dart_slt_moving_window_stats(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(point_clean)} data points with {window_hours}h window")
         
@@ -2498,9 +2619,14 @@ def plot_dart_slt_moving_window_stats(
         fig.update_xaxes(title_text="Time", row=2, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_moving_window_stats_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_moving_window_stats_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_moving_window_stats_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=1000, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save moving window statistics
         window_stats = pd.DataFrame({
@@ -2516,7 +2642,7 @@ def plot_dart_slt_moving_window_stats(
         window_stats["Settlement_Point"] = point
         window_stats = window_stats.dropna()  # Remove NaN values from beginning
         
-        stats_path = output_dir / f"dart_slt_moving_window_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_moving_window_stats_{safe_filename}.csv"
         window_stats.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -2584,6 +2710,10 @@ def plot_dart_slt_sign_transitions(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(point_clean)} data points")
         
@@ -2760,9 +2890,14 @@ def plot_dart_slt_sign_transitions(
         fig.update_yaxes(title_text="Number of Sign Changes", row=2, col=2)
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_sign_transitions_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_sign_transitions_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_sign_transitions_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=900, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save transition statistics
         transition_stats = [{
@@ -2783,7 +2918,7 @@ def plot_dart_slt_sign_transitions(
         }]
         
         transition_stats_df = pd.DataFrame(transition_stats)
-        stats_path = output_dir / f"dart_slt_sign_transitions_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_sign_transitions_stats_{safe_filename}.csv"
         transition_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -2858,6 +2993,10 @@ def plot_dart_slt_kmeans_unimodal(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(dart_slt_clean)} data points with max_k={max_k}")
         
@@ -3028,9 +3167,14 @@ def plot_dart_slt_kmeans_unimodal(
         )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_kmeans_unimodal_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_kmeans_unimodal_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_kmeans_unimodal_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=700, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save clustering statistics
         cluster_stats = [{
@@ -3051,7 +3195,7 @@ def plot_dart_slt_kmeans_unimodal(
             cluster_stats[0][f"Cluster_{i+1}_Proportion"] = cluster_size / len(dart_slt_clean)
         
         cluster_stats_df = pd.DataFrame(cluster_stats)
-        stats_path = output_dir / f"dart_slt_kmeans_unimodal_stats_{safe_filename}.csv"
+        stats_path = location_dir / f"dart_slt_kmeans_unimodal_stats_{safe_filename}.csv"
         cluster_stats_df.to_csv(stats_path, index=False)
         print(f"  Statistics saved to: {stats_path}")
     
@@ -3130,6 +3274,10 @@ def plot_dart_slt_kmeans_bimodal(
         
         # Create safe filename
         safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        # Create location-specific subdirectory
+        location_dir = output_dir / safe_filename
+        location_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"Processing {point}: {len(positive_values)} positive, {len(negative_values)} negative values")
         
@@ -3342,14 +3490,19 @@ def plot_dart_slt_kmeans_bimodal(
             )
         
         # Save individual plot
-        output_path = output_dir / f"dart_slt_kmeans_bimodal_{safe_filename}.html"
+        output_path = location_dir / f"dart_slt_kmeans_bimodal_{safe_filename}.html"
         fig.write_html(output_path)
         print(f"  Plot saved to: {output_path}")
+        
+        # Save PNG version
+        png_path = location_dir / f"dart_slt_kmeans_bimodal_{safe_filename}.png"
+        fig.write_image(png_path, width=1400, height=900, scale=2)
+        print(f"  PNG saved to: {png_path}")
         
         # Save bimodal clustering statistics
         if bimodal_cluster_stats:
             bimodal_cluster_stats_df = pd.DataFrame(bimodal_cluster_stats)
-            stats_path = output_dir / f"dart_slt_kmeans_bimodal_stats_{safe_filename}.csv"
+            stats_path = location_dir / f"dart_slt_kmeans_bimodal_stats_{safe_filename}.csv"
             bimodal_cluster_stats_df.to_csv(stats_path, index=False)
             print(f"  Statistics saved to: {stats_path}")
     

@@ -1,139 +1,105 @@
-ercot_dart
-==============================
+# ercot_dart
 
-# First Look: ERCOT Real-Time vs DAM Settlement Point Prices Using LZ (Houston) as an Example
+## First Look: ERCOT Real-Time vs DAM Settlement Point Prices Using LZ (Houston) as an Example
 
-This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics.  The dataset spans January 1, 2024 through June 5, 2025.  The data was downloaded from ERCOT using the Public API.
+This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics. The dataset spans **January 1, 2024 through June 5, 2025**, and was downloaded from ERCOT’s Public API.
 
 ---
 
 ## Temporal Dynamics
 
-![DART Time Series](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Sequence.png)
+![DART Time Series](reports/figures/initial_dart_houston/dart_by_location_LZ_HOUSTON_LZ.png)
 
-Both raw and Signed Log Transform (SLT) DART series show frequent, high-amplitude spikes:
-- Many large events persist for only 1–3 hours
-- These transient but extreme excursions have significant economic impact
-- SLT representation captures structure while reducing sensitivity to scale
+Raw and Signed Log Transformed (SLT) DART series both show:
+- Frequent, high-amplitude price excursions
+- Short-lived spikes, typically lasting 1–3 hours
+- SLT transformation reveals structure while compressing extremes
 
 ---
 
 ## Distributional Behavior
 
-![Raw vs SLT Distributions](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Distribution.png)
+![Raw vs SLT Distributions](reports/figures/initial_dart_houston/dart_distributions_LZ_HOUSTON_LZ.png)
 
-The raw DART distribution is sharply peaked near zero with extreme outliers in both directions. The signed-log transform:
-- Symmetrizes the distribution
-- Makes the tails more interpretable
-- Enables side-by-side analysis of positive and negative deviations
-
----
-
-![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
-
-The signed-log transform of DART (SLT) reveals a bimodal structure:
-- Both positive and negative regimes exhibit long right tails
-- Peak densities occur at moderate values (1–2 on the log scale), with sharp fall-off for extreme deviations
-- The tails are heavy and non-Gaussian, highlighting risk of large deviations
+The raw DART distribution is sharply peaked near zero with long tails. The SLT view:
+- Symmetrizes the data
+- Highlights heavy tails and potential regime separation
+- Lends itself to further density- or cluster-based analyses
 
 ---
 
-![Rolling Stats](reports/figures/initial_dart_houston/DART_Signed-Log_Transform_Moving_Window_Stats.png)
+![Bimodal Histogram](reports/figures/initial_dart_houston/dart_slt_bimodal_LZ_HOUSTON_LZ.png)
 
-Rolling 168-hour windows reveal:
-- Oscillating volatility and skewness over time
-- Persistent deviations from symmetry and normality
-- Periods of increased kurtosis, indicating bursts of extreme events
-- Positive rate fluctuates over time, rarely holding near 50%
-
----
-
-## Cyclic and Spectral Patterns
-
-![Sign Spectrum](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sequence_Power_Spectrum.png)
-
-Spectral analysis of the DART **sign sequence** shows a clear peak near **1 cycle/day**, indicating:
-- A non-random alternation between positive and negative DARTs
-- Evidence of calendar-driven structure (e.g., diurnal ramp patterns)
+A closer look at SLT-positive and SLT-negative distributions (absolute-valued) reveals:
+- Right-skewed histograms in both directions
+- Departure from normality despite moderately good fit in log-space
+- Significant asymmetry between positive and negative excursions
 
 ---
 
-![Hourly Heatmap](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Daily_Cycle_Heatmap.png)
+## Cluster Analysis
 
-Hourly positivity rates across days of the week reveal:
-- Consistently **negative DARTs** during business hours (8:00–22:00)
-- More **positive DARTs** observed during overnight and early morning hours
-- Weekends display more mixed or neutral behavior
+To further characterize DART behaviors by intensity:
 
----
+![KMeans Bimodal](reports/figures/initial_dart_houston/dart_slt_kmeans_bimodal_LZ_HOUSTON_LZ.png)
 
-## Sign Transitions
+Separate K-means cluster analyses for positive and negative SLT values suggest:
+- **Three clusters** are a natural segmentation for both sides
+- Cluster centers capture mild, moderate, and extreme DART conditions
 
-![Sign Transition Summary](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sign_Transitions_Summary.png)
+![KMeans Unimodal](reports/figures/initial_dart_houston/dart_slt_kmeans_unimodal_LZ_HOUSTON_LZ.png)
 
-State transition and run-length analysis of DART sign behavior indicates:
-- Strong persistence: ~80% chance that a positive or negative run continues hour-to-hour
-- Most runs are short (1–3 hours), but extended regimes do occur
-- Transitions cluster at specific hours (1AM, 9AM, 11PM), likely aligned with market and load cycles
+When considered unimodally (signed SLT values together), **two clusters** dominate:
+- A likely regime switch between negative and positive pricing
+- Useful for coarse predictive modeling or early warning indicators
 
 ---
 
-These findings set the stage for more advanced modeling, forecasting, and integration into bidding and hedging strategies in the ERCOT day-ahead market.
+## Moving Window Dynamics
 
+![Rolling Statistics](reports/figures/initial_dart_houston/dart_slt_moving_window_stats_LZ_HOUSTON_LZ.png)
 
-==============================
+Using 168-hour (weekly) rolling windows:
+- Standard deviation, skewness, and kurtosis exhibit temporal clustering
+- Some intervals show high volatility and non-Gaussian shapes
+- Positive sign rate fluctuates seasonally, with sustained deviation from 50%
 
-I use CookieCutter as a starting point.
+---
 
-Project Organization
-------------
+## Cyclic and Frequency Structure
 
-    ├── LICENSE
-    ├── Makefile           <- Makefile with commands like `make data` or `make train`
-    ├── README.md          <- The top-level README for developers using this project.
-    ├── data
-    │   ├── external       <- Data from third party sources.
-    │   ├── interim        <- Intermediate data that has been transformed.
-    │   ├── processed      <- The final, canonical data sets for modeling.
-    │   └── raw            <- The original, immutable data dump.
-    │
-    ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
-    │
-    ├── models             <- Trained and serialized models, model predictions, or model summaries
-    │
-    ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-    │                         the creator's initials, and a short `-` delimited description, e.g.
-    │                         `1.0-jqp-initial-data-exploration`.
-    │
-    ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-    │
-    ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-    │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
-    │
-    ├── setup.py           <- makes project pip installable (pip install -e .) so src can be imported
-    ├── src                <- Source code for use in this project.
-    │   ├── __init__.py    <- Makes src a Python module
-    │   │
-    │   ├── data           <- Scripts to download or generate data
-    │   │   └── make_dataset.py
-    │   │
-    │   ├── features       <- Scripts to turn raw data into features for modeling
-    │   │   └── build_features.py
-    │   │
-    │   ├── models         <- Scripts to train models and then use trained models to make
-    │   │   │                 predictions
-    │   │   ├── predict_model.py
-    │   │   └── train_model.py
-    │   │
-    │   └── visualization  <- Scripts to create exploratory and results oriented visualizations
-    │       └── visualize.py
-    │
-    └── tox.ini            <- tox file with settings for running tox; see tox.readthedocs.io
+![SLT Spectrum](reports/figures/initial_dart_houston/dart_slt_power_spectrum_LZ_HOUSTON_LZ.png)
 
+SLT power spectrum highlights:
+- A strong peak near **1 cycle/day** (diurnal behavior)
+- Secondary structure across multiple frequencies, suggesting load/congestion interaction
 
---------
+![Sign Heatmap](reports/figures/initial_dart_houston/dart_slt_sign_daily_heatmap_LZ_HOUSTON_LZ.png)
 
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+Hourly positivity rates by day-of-week show:
+- **Persistent negativity** during business hours
+- More positive DARTs overnight and early morning
+- Saturdays and Sundays are more balanced
+
+![Sign Spectrum](reports/figures/initial_dart_houston/dart_slt_sign_power_spectrum_LZ_HOUSTON_LZ.png)
+
+Binary sign sequence analysis confirms:
+- **Strong diurnal periodicity**
+- Reaffirmed structure in the direction of the DART signal, not just magnitude
+
+---
+
+## Sign Transition Behavior
+
+![Sign Transition Summary](reports/figures/initial_dart_houston/dart_slt_sign_transitions_LZ_HOUSTON_LZ.png)
+
+Key insights from sign-transition analysis:
+- High persistence in both positive and negative DART signs
+- Most regime changes are short but non-random
+- Elevated switching at **1AM, 9AM, and 11PM**, aligned with operational or market shifts
+
+---
+
+These findings offer a strong empirical foundation for DART forecasting, risk-aware bidding, and congestion-sensitivity modeling. Future work will move beyond descriptive analytics into probabilistic classification, time-series modeling, and ultimately prescriptive bidding support.
+
+---
