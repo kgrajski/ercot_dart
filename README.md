@@ -16,6 +16,8 @@ Both raw and Signed Log Transform (SLT) DART series show frequent, high-amplitud
 - These transient but extreme excursions have significant economic impact
 - SLT representation captures structure while reducing sensitivity to scale
 
+---
+
 ## Distributional Behavior
 
 ![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
