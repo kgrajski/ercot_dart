@@ -2522,7 +2522,7 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_mean.values,
                 mode="lines",
                 name="Rolling Mean",
-                line=dict(color="blue", width=2),
+                line=dict(color=COLOR_SEQUENCE[0], width=2),  # Professional blue
                 showlegend=True
             ),
             row=1, col=1
@@ -2534,7 +2534,7 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_std.values,
                 mode="lines",
                 name="Rolling Std Dev",
-                line=dict(color="red", width=2),
+                line=dict(color=COLOR_SEQUENCE[1], width=2),  # Professional magenta
                 yaxis="y2",
                 showlegend=True
             ),
@@ -2548,7 +2548,7 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_skew.values,
                 mode="lines",
                 name="Rolling Skewness",
-                line=dict(color="green", width=2),
+                line=dict(color=COLOR_SEQUENCE[2], width=2),  # Professional orange
                 showlegend=True
             ),
             row=1, col=2
@@ -2560,7 +2560,7 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_kurt.values,
                 mode="lines",
                 name="Rolling Kurtosis",
-                line=dict(color="orange", width=2),
+                line=dict(color=COLOR_SEQUENCE[3], width=2),  # Professional teal
                 yaxis="y4",
                 showlegend=True
             ),
@@ -2574,14 +2574,14 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_positive_pct.values,
                 mode="lines",
                 name="Positive Rate %",
-                line=dict(color="purple", width=2),
+                line=dict(color=COLOR_SEQUENCE[4], width=2),  # Professional red
                 showlegend=True
             ),
             row=2, col=1
         )
         
         # Add 50% reference line
-        fig.add_hline(y=50, line_dash="dash", line_color="gray", row=2, col=1)
+        fig.add_hline(y=50, line_dash="dash", line_color=SEMANTIC_COLORS['neutral_line'], row=2, col=1)
         
         # Plot 4: Rolling autocorrelation
         fig.add_trace(
@@ -2590,27 +2590,29 @@ def plot_dart_slt_moving_window_stats(
                 y=rolling_autocorr.values,
                 mode="lines",
                 name="Daily Autocorr (lag=24h)",
-                line=dict(color="brown", width=2),
+                line=dict(color=COLOR_SEQUENCE[5], width=2),  # Professional brown
                 showlegend=True
             ),
             row=2, col=2
         )
         
         # Add 0 reference line
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=2)
+        fig.add_hline(y=0, line_dash="dash", line_color=SEMANTIC_COLORS['neutral_line'], row=2, col=2)
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Moving Window Statistics - {point}{title_suffix}<br><sub>Rolling statistics analysis with {window_hours}h window</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform Moving Window Statistics - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Rolling statistics analysis with {window_hours}h window</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=800,
-            showlegend=True
+            showlegend=True,
+            legend_position='upper_right'
         )
+        fig.update_layout(**layout)
         
-        # Update axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=2, cols=2)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="DART_SLT", row=1, col=1)
         fig.update_yaxes(title_text="Skewness", row=1, col=2)
         fig.update_yaxes(title_text="Positive Rate (%)", row=2, col=1)
