@@ -18,7 +18,7 @@ The signed-log transform of DART (SLT) reveals a bimodal structure:
 
 ---
 
-![Raw vs SLT Distributions](ercot_dart/reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Distribution.png)
+![Raw vs SLT Distributions](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Distribution.png)
 
 The raw DART distribution is sharply peaked near zero with extreme outliers in both directions. The signed-log transform:
 - Symmetrizes the distribution
@@ -29,7 +29,7 @@ The raw DART distribution is sharply peaked near zero with extreme outliers in b
 
 ## Temporal Dynamics
 
-![DART Time Series](ercot_dart/reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Sequence.png)
+![DART Time Series](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Sequence.png)
 
 Both raw and SLT DART series show frequent, high-amplitude spikes:
 - Many large events persist for only 1–3 hours
@@ -38,7 +38,7 @@ Both raw and SLT DART series show frequent, high-amplitude spikes:
 
 ---
 
-![Rolling Stats](ercot_dart/reports/figures/initial_dart_houston/DART_Signed-Log_Transform_Moving_Window_Stats.png)
+![Rolling Stats](reports/figures/initial_dart_houston/DART_Signed-Log_Transform_Moving_Window_Stats.png)
 
 Rolling 168-hour windows reveal:
 - Oscillating volatility and skewness over time
@@ -50,7 +50,7 @@ Rolling 168-hour windows reveal:
 
 ## Cyclic and Spectral Patterns
 
-![Sign Spectrum](ercot_dart/reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sequence_Power_Spectrum.png)
+![Sign Spectrum](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sequence_Power_Spectrum.png)
 
 Spectral analysis of the DART **sign sequence** shows a clear peak near **1 cycle/day**, indicating:
 - A non-random alternation between positive and negative DARTs
@@ -58,7 +58,7 @@ Spectral analysis of the DART **sign sequence** shows a clear peak near **1 cycl
 
 ---
 
-![Hourly Heatmap](ercot_dart/reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Daily_Cycle_Heatmap.png)
+![Hourly Heatmap](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Daily_Cycle_Heatmap.png)
 
 Hourly positivity rates across days of the week reveal:
 - Consistently **negative DARTs** during business hours (8:00–22:00)
@@ -69,7 +69,7 @@ Hourly positivity rates across days of the week reveal:
 
 ## Sign Transitions
 
-![Sign Transition Summary](ercot_dart/reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sign_Transitions_Summary.png)
+![Sign Transition Summary](reports/figures/initial_dart_houston/DART_Signed_Log_Transform_Sign_Transitions_Summary.png)
 
 State transition and run-length analysis of DART sign behavior indicates:
 - Strong persistence: ~80% chance that a positive or negative run continues hour-to-hour
