@@ -9,7 +9,7 @@ This initial analysis explores the hourly differences between ERCOT real-time ma
 
 ## Distributional Behavior
 
-![Bimodal Signed-Log Histogram](ercot_dart/reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
+![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
 
 The signed-log transform of DART (SLT) reveals a bimodal structure:
 - Both positive and negative regimes exhibit long right tails
