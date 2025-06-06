@@ -18,6 +18,8 @@ from ..visualization import (
     plot_dart_slt_spectrogram,
     plot_dart_slt_moving_window_stats,
     plot_dart_slt_sign_transitions,
+    plot_dart_slt_kmeans_unimodal,
+    plot_dart_slt_kmeans_bimodal,
 )
 
 
@@ -215,6 +217,22 @@ class Exp0Dataset(ExpDataset):
             df=result_df,
             output_dir=self.output_dir,
             title_suffix=" - Exp0"
+        )
+
+        # 16. K-means clustering analysis (unimodal) of signed log transformed DART
+        plot_dart_slt_kmeans_unimodal(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0",
+            max_k=10
+        )
+
+        # 17. K-means clustering analysis (bimodal) of signed log transformed DART
+        plot_dart_slt_kmeans_bimodal(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0",
+            max_k=10
         )
 
         return result_df

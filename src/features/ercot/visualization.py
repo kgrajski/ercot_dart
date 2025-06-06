@@ -7,105 +7,161 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy import stats
+from ..utils import compute_power_spectrum, compute_kmeans_clustering
 
 
-def compute_power_spectrum(
-    time_series: np.ndarray,
-    timestamps: pd.Series,
-    peak_percentile: float = 85
+# =============================================================================
+# PROFESSIONAL STYLING INFRASTRUCTURE
+# =============================================================================
+
+# Professional color palette (colorblind-friendly, publication-ready)
+PROFESSIONAL_COLORS = {
+    'primary': '#2E86AB',      # Professional blue
+    'secondary': '#A23B72',    # Deep magenta 
+    'accent': '#F18F01',       # Warm orange
+    'neutral': '#C73E1D',      # Deep red
+    'success': '#4A7A8A',      # Teal
+    'warning': '#8B4513',      # Saddle brown
+    'info': '#556B2F',         # Dark olive green
+    'purple': '#4B0082',       # Indigo
+    'background': '#F5F5F5',   # Light gray
+    'text': '#2C3E50',         # Dark blue-gray
+    'grid': 'rgba(128,128,128,0.2)',  # Subtle grid
+}
+
+# Semantic color mappings for consistency
+SEMANTIC_COLORS = {
+    'positive': PROFESSIONAL_COLORS['primary'],     # Blue for positive values
+    'negative': PROFESSIONAL_COLORS['secondary'],   # Magenta for negative values
+    'positive_fill': f"rgba(46, 134, 171, 0.6)",   # Semi-transparent blue
+    'negative_fill': f"rgba(162, 59, 114, 0.6)",   # Semi-transparent magenta
+    'neutral_line': PROFESSIONAL_COLORS['text'],    # Dark gray for reference lines
+    'highlight': PROFESSIONAL_COLORS['accent'],     # Orange for highlights/optimal points
+}
+
+# Extended color sequence for multi-series plots
+COLOR_SEQUENCE = [
+    PROFESSIONAL_COLORS['primary'],    # Blue
+    PROFESSIONAL_COLORS['secondary'],  # Magenta
+    PROFESSIONAL_COLORS['accent'],     # Orange
+    PROFESSIONAL_COLORS['success'],    # Teal
+    PROFESSIONAL_COLORS['neutral'],    # Red
+    PROFESSIONAL_COLORS['warning'],    # Brown
+    PROFESSIONAL_COLORS['info'],       # Olive
+    PROFESSIONAL_COLORS['purple'],     # Indigo
+]
+
+
+def get_professional_layout(
+    title: str,
+    height: int = 600,
+    width: int = None,
+    showlegend: bool = True,
+    legend_position: str = 'auto'
 ) -> dict:
-    """Compute power spectrum analysis of a time series using FFT.
-    
-    Performs Fast Fourier Transform (FFT) on the input time series to identify
-    periodic patterns and frequency components.
+    """Get professional layout configuration for Plotly figures.
     
     Args:
-        time_series: 1D numpy array of time series values
-        timestamps: Pandas Series of timestamps corresponding to the time series
-        peak_percentile: Percentile threshold for identifying spectral peaks (default: 85)
-        
+        title: Main title for the plot
+        height: Plot height in pixels
+        width: Plot width in pixels (optional)
+        showlegend: Whether to show legend
+        legend_position: Legend position ('auto', 'upper_left', 'upper_right', 'external_right')
+    
     Returns:
-        dict containing:
-            - freq_bins_per_day: Frequency bins in cycles per day
-            - power_spectrum_db: Power spectral density in dB
-            - sampling_freq_per_day: Sampling frequency in cycles per day
-            - n_samples: Number of samples in the time series
-            - dc_power_db: DC component power in dB
-            - peak_indices: List of indices of spectral peaks
-            - peak_frequencies: List of peak frequencies in cycles per day
-            - peak_periods: List of peak periods in hours
-            - peak_powers: List of peak powers in dB
+        dict: Professional layout configuration
     """
-    # Convert timestamps to pandas datetime if not already
-    timestamps = pd.to_datetime(timestamps)
+    layout = {
+        'title': {
+            'text': title,
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 16, 'color': PROFESSIONAL_COLORS['text']}
+        },
+        'height': height,
+        'showlegend': showlegend,
+        'paper_bgcolor': 'white',
+        'plot_bgcolor': 'white',
+        'margin': dict(t=100, b=60, l=60, r=60),
+        'font': {'color': PROFESSIONAL_COLORS['text']}
+    }
     
-    # Calculate sampling frequency
-    time_diffs = timestamps.diff().dropna()
-    median_dt = time_diffs.median()
+    if width:
+        layout['width'] = width
     
-    if median_dt.total_seconds() == 0:
-        raise ValueError("Zero time differences found in timestamps")
+    # Configure legend positioning
+    if showlegend:
+        legend_configs = {
+            'upper_left': dict(x=0.02, y=0.98, bgcolor="rgba(255,255,255,0.9)"),
+            'upper_right': dict(x=0.98, y=0.98, xanchor='right', bgcolor="rgba(255,255,255,0.9)"),
+            'external_right': dict(x=1.02, y=1, bgcolor="rgba(255,255,255,0.9)"),
+            'auto': dict(bgcolor="rgba(255,255,255,0.9)")
+        }
         
-    sampling_freq_hz = 1 / median_dt.total_seconds()  # Hz
-    sampling_freq_per_day = sampling_freq_hz * 86400  # cycles per day
-    
-    # Perform FFT
-    n_samples = len(time_series)
-    fft_values = np.fft.fft(time_series)
-    
-    # Calculate one-sided power spectrum
-    n_oneside = n_samples // 2
-    fft_magnitude = np.abs(fft_values[:n_oneside])
-    
-    # Convert to power spectral density and then to dB
-    power_spectrum = (fft_magnitude ** 2) / n_samples
-    power_spectrum[1:] *= 2  # Double power for positive frequencies (except DC)
-    
-    # Convert to dB
-    power_spectrum_db = 10 * np.log10(power_spectrum + 1e-12)
-    
-    # Calculate frequency axis in cycles per day
-    freq_bins_hz = np.fft.fftfreq(n_samples, d=1/sampling_freq_hz)[:n_oneside]
-    freq_bins_per_day = freq_bins_hz * 86400  # Convert Hz to cycles per day
-    
-    # Find dominant frequencies (spectral peaks)
-    peak_indices = []
-    peak_frequencies = []
-    peak_periods = []
-    peak_powers = []
-    
-    if len(power_spectrum_db) > 1:
-        peak_threshold = np.percentile(power_spectrum_db[1:], peak_percentile)
+        legend_config = legend_configs.get(legend_position, legend_configs['auto'])
+        legend_config.update({
+            'bordercolor': PROFESSIONAL_COLORS['text'],
+            'borderwidth': 1,
+            'font': dict(color=PROFESSIONAL_COLORS['text'], size=11)
+        })
+        layout['legend'] = legend_config
         
-        for j in range(1, len(power_spectrum_db)):
-            if power_spectrum_db[j] > peak_threshold:
-                # Check if it's a local maximum
-                is_peak = True
-                window = 3
-                for k in range(max(1, j-window), min(len(power_spectrum_db), j+window+1)):
-                    if k != j and power_spectrum_db[k] > power_spectrum_db[j]:
-                        is_peak = False
-                        break
-                if is_peak:
-                    peak_indices.append(j)
-                    freq_cpd = freq_bins_per_day[j]
-                    peak_frequencies.append(freq_cpd)
-                    period_hours = 24 / freq_cpd if freq_cpd > 0 else float("inf")
-                    peak_periods.append(period_hours)
-                    peak_powers.append(power_spectrum_db[j])
+        # Adjust right margin for external legend
+        if legend_position == 'external_right':
+            layout['margin']['r'] = 150
     
+    return layout
+
+
+def get_professional_axis_style() -> dict:
+    """Get professional axis styling configuration.
+    
+    Returns:
+        dict: Axis styling configuration
+    """
     return {
-        "freq_bins_per_day": freq_bins_per_day,
-        "power_spectrum_db": power_spectrum_db,
-        "sampling_freq_per_day": sampling_freq_per_day,
-        "n_samples": n_samples,
-        "dc_power_db": power_spectrum_db[0],
-        "peak_indices": peak_indices,
-        "peak_frequencies": peak_frequencies,
-        "peak_periods": peak_periods,
-        "peak_powers": peak_powers
+        'title_font': dict(color=PROFESSIONAL_COLORS['text'], size=12),
+        'tickfont': dict(color=PROFESSIONAL_COLORS['text']),
+        'gridcolor': PROFESSIONAL_COLORS['grid'],
+        'showgrid': True,
+        'zeroline': True,
+        'zerolinecolor': PROFESSIONAL_COLORS['grid'],
+        'linecolor': PROFESSIONAL_COLORS['text']
     }
 
+
+def apply_professional_axis_styling(fig, rows: int = 1, cols: int = 1) -> None:
+    """Apply professional axis styling to all subplots in a figure.
+    
+    Args:
+        fig: Plotly figure object
+        rows: Number of subplot rows
+        cols: Number of subplot columns
+    """
+    axis_style = get_professional_axis_style()
+    
+    # Handle single plots (go.Figure) vs subplots (make_subplots)
+    if rows == 1 and cols == 1:
+        # Check if this is a subplot figure or a simple figure
+        try:
+            # Try to update with row/col (subplot case)
+            fig.update_xaxes(**axis_style, row=1, col=1)
+            fig.update_yaxes(**axis_style, row=1, col=1)
+        except Exception:
+            # Fall back to simple figure case (no row/col)
+            fig.update_xaxes(**axis_style)
+            fig.update_yaxes(**axis_style)
+    else:
+        # Multiple subplots - use row/col parameters
+        for row in range(1, rows + 1):
+            for col in range(1, cols + 1):
+                fig.update_xaxes(**axis_style, row=row, col=col)
+                fig.update_yaxes(**axis_style, row=row, col=col)
+
+
+# =============================================================================
+# VISUALIZATION FUNCTIONS
+# =============================================================================
 
 def plot_dart_by_location(
     df: pd.DataFrame,
@@ -175,7 +231,7 @@ def plot_dart_by_location(
                 y=point_data["dart"],
                 mode="lines",
                 name="Raw DART",
-                line=dict(color="blue"),
+                line=dict(color=SEMANTIC_COLORS['positive'], width=2),
                 showlegend=True
             ),
             row=1, col=1
@@ -188,7 +244,7 @@ def plot_dart_by_location(
                 y=point_data["dart_slt"],
                 mode="lines",
                 name="SLT DART",
-                line=dict(color="red"),
+                line=dict(color=SEMANTIC_COLORS['negative'], width=2),
                 showlegend=True
             ),
             row=2, col=1
@@ -199,19 +255,25 @@ def plot_dart_by_location(
             fig.add_hline(
                 y=0,
                 line_dash="dash",
-                line_color="gray",
+                line_color=SEMANTIC_COLORS['neutral_line'],
                 line_width=1,
                 row=row, col=1
             )
         
-        # Update layout
-        fig.update_layout(
-            title=f"DART Price Differences Analysis - {point}{title_suffix}",
+        # Apply professional layout
+        professional_title = f"DART Price Differences Analysis - {point}{title_suffix}"
+        layout = get_professional_layout(
+            title=professional_title,
             height=800,
-            legend_title="Data Type"
+            showlegend=True,
+            legend_position='upper_left'
         )
+        fig.update_layout(**layout)
         
-        # Update y-axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=2, cols=1)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="DART Price Difference ($/MWh)", row=1, col=1)
         fig.update_yaxes(title_text="Signed Log DART", row=2, col=1)
         fig.update_xaxes(title_text="Time", row=2, col=1)
@@ -314,8 +376,9 @@ def plot_dart_distributions(
                     name=f"{data_type} Histogram",
                     nbinsx=120,  # Increased from 30 to 120 for finer resolution (1/4 current resolution)
                     histnorm="probability density",
-                    opacity=0.6,
-                    marker_color="blue" if row == 1 else "red",
+                    opacity=0.7,
+                    marker_color=SEMANTIC_COLORS['positive_fill'] if row == 1 else SEMANTIC_COLORS['negative_fill'],
+                    marker_line=dict(width=1, color=SEMANTIC_COLORS['positive'] if row == 1 else SEMANTIC_COLORS['negative']),
                     showlegend=True
                 ),
                 row=row, col=1
@@ -331,7 +394,11 @@ def plot_dart_distributions(
                     y=normal_curve,
                     mode="lines",
                     name=f"{data_type} Normal Fit (μ={mu:.2f}, σ={std:.2f})",
-                    line=dict(color="darkblue" if row == 1 else "darkred", width=2, dash="dash"),
+                    line=dict(
+                        color=SEMANTIC_COLORS['positive'] if row == 1 else SEMANTIC_COLORS['negative'], 
+                        width=2, 
+                        dash="dash"
+                    ),
                     showlegend=True
                 ),
                 row=row, col=1
@@ -361,13 +428,19 @@ def plot_dart_distributions(
             })
         
         # Update layout
-        fig.update_layout(
-            title=f"DART Distribution Analysis - {point}{title_suffix}",
+        professional_title = f"DART Distribution Analysis - {point}{title_suffix}"
+        layout = get_professional_layout(
+            title=professional_title,
             height=800,
-            showlegend=True
+            showlegend=True,
+            legend_position='upper_right'
         )
+        fig.update_layout(**layout)
         
-        # Update axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=2, cols=1)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="Probability Density", row=1, col=1)
         fig.update_yaxes(title_text="Probability Density", row=2, col=1)
         fig.update_xaxes(title_text="DART ($/MWh)", row=1, col=1)
@@ -450,7 +523,8 @@ def plot_dart_boxplots(
             go.Box(
                 y=point_data["dart"],
                 name="Raw DART",
-                marker_color="blue",
+                marker_color=SEMANTIC_COLORS['positive'],
+                line=dict(color=SEMANTIC_COLORS['positive'], width=2),
                 boxpoints="outliers",
                 showlegend=True
             ),
@@ -462,21 +536,28 @@ def plot_dart_boxplots(
             go.Box(
                 y=point_data["dart_slt"],
                 name="SLT DART",
-                marker_color="red",
+                marker_color=SEMANTIC_COLORS['negative'],
+                line=dict(color=SEMANTIC_COLORS['negative'], width=2),
                 boxpoints="outliers",
                 showlegend=True
             ),
             row=1, col=2
         )
         
-        # Update layout
-        fig.update_layout(
-            title=f"DART Box Plot Analysis - {point}{title_suffix}",
+        # Apply professional layout
+        professional_title = f"DART Box Plot Analysis - {point}{title_suffix}"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
-            showlegend=True
+            showlegend=True,
+            legend_position='upper_right'
         )
+        fig.update_layout(**layout)
         
-        # Update axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=2)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="DART ($/MWh)", row=1, col=1)
         fig.update_yaxes(title_text="Signed Log DART", row=1, col=2)
         fig.update_xaxes(title_text="Data Type", row=1, col=1)
@@ -613,7 +694,11 @@ def plot_dart_qqplots(
                     y=osr,
                     mode="markers",
                     name=f"{data_type} Data",
-                    marker=dict(color="blue" if col == 1 else "red", size=4, opacity=0.6),
+                    marker=dict(
+                        color=SEMANTIC_COLORS['positive'] if col == 1 else SEMANTIC_COLORS['negative'], 
+                        size=4, 
+                        opacity=0.7
+                    ),
                     showlegend=True
                 ),
                 row=1, col=col
@@ -629,7 +714,11 @@ def plot_dart_qqplots(
                     y=line_y,
                     mode="lines",
                     name=f"{data_type} Normal Line (R²={r**2:.3f})",
-                    line=dict(color="darkblue" if col == 1 else "darkred", width=2),
+                    line=dict(
+                        color=SEMANTIC_COLORS['positive'] if col == 1 else SEMANTIC_COLORS['negative'], 
+                        width=3,
+                        dash="dash"
+                    ),
                     showlegend=True
                 ),
                 row=1, col=col
@@ -646,14 +735,20 @@ def plot_dart_qqplots(
                 "Correlation": r
             })
         
-        # Update layout
-        fig.update_layout(
-            title=f"DART Q-Q Plot Analysis - {point}{title_suffix}",
+        # Apply professional layout
+        professional_title = f"DART Q-Q Plot Analysis - {point}{title_suffix}"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
-            showlegend=True
+            showlegend=True,
+            legend_position='upper_left'
         )
+        fig.update_layout(**layout)
         
-        # Update axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=2)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="Sample Quantiles", row=1, col=1)
         fig.update_yaxes(title_text="Sample Quantiles", row=1, col=2)
         fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=1)
@@ -771,7 +866,8 @@ def plot_dart_slt_bimodal(
                     nbinsx=80,  # Increased from 20 to 80 for finer resolution (1/4 current resolution)
                     histnorm="probability density",
                     opacity=0.7,
-                    marker_color="blue" if col == 1 else "red",
+                    marker_color=SEMANTIC_COLORS['positive_fill'] if col == 1 else SEMANTIC_COLORS['negative_fill'],
+                    marker_line=dict(width=1, color=SEMANTIC_COLORS['positive'] if col == 1 else SEMANTIC_COLORS['negative']),
                     showlegend=True
                 ),
                 row=1, col=col
@@ -787,7 +883,11 @@ def plot_dart_slt_bimodal(
                     y=normal_curve,
                     mode="lines",
                     name=f"{name} Normal Fit",
-                    line=dict(color="darkblue" if col == 1 else "darkred", width=2, dash="dash"),
+                    line=dict(
+                        color=SEMANTIC_COLORS['positive'] if col == 1 else SEMANTIC_COLORS['negative'], 
+                        width=2, 
+                        dash="dash"
+                    ),
                     showlegend=True
                 ),
                 row=1, col=col
@@ -817,17 +917,19 @@ def plot_dart_slt_bimodal(
             })
         
         # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Bimodal Analysis - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
+        professional_title = f"DART Signed-Log Transform Bimodal Analysis - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
-            showlegend=True
+            showlegend=True,
+            legend_position='upper_right'
         )
+        fig.update_layout(**layout)
         
-        # Update axis labels
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=2)
+        
+        # Update specific axis labels
         fig.update_yaxes(title_text="Frequency", row=1, col=1)
         fig.update_yaxes(title_text="Frequency", row=1, col=2)
         fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=1)
@@ -953,7 +1055,7 @@ def plot_dart_slt_cumulative(
                     y=cumulative_count,
                     mode="lines",
                     name=f"{name} Count",
-                    line=dict(color=color, width=2),
+                    line=dict(color=SEMANTIC_COLORS['positive'] if row == 1 else SEMANTIC_COLORS['negative'], width=2.5),
                     showlegend=True
                 ),
                 row=row, col=1
@@ -966,7 +1068,7 @@ def plot_dart_slt_cumulative(
                     y=cumulative_prob,
                     mode="lines",
                     name=f"{name} Distribution",
-                    line=dict(color=color, width=2, dash="dash"),
+                    line=dict(color=SEMANTIC_COLORS['positive'] if row == 1 else SEMANTIC_COLORS['negative'], width=2.5, dash="dash"),
                     showlegend=True
                 ),
                 row=row, col=2
@@ -986,15 +1088,16 @@ def plot_dart_slt_cumulative(
             })
         
         # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Cumulative Analysis - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
+        professional_title = f"DART Signed-Log Transform Cumulative Analysis - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=800,  # Increased height to accommodate 2x2 grid
             showlegend=True
         )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=2, cols=2)
         
         # Update axis labels for all subplots
         # Row 1 (Negative values)
@@ -1126,10 +1229,12 @@ def plot_dart_slt_by_weekday(
                     type="data",
                     array=positive_stats["std"],
                     visible=True,
-                    color="darkblue"
+                    color=SEMANTIC_COLORS['positive'],
+                    thickness=2
                 ),
                 name="Positive DART_SLT",
-                marker_color="lightblue",
+                marker_color=SEMANTIC_COLORS['positive_fill'],
+                marker_line=dict(color=SEMANTIC_COLORS['positive'], width=1),
                 opacity=0.8,
                 offsetgroup=1
             )
@@ -1144,26 +1249,34 @@ def plot_dart_slt_by_weekday(
                     type="data",
                     array=negative_stats["std"],
                     visible=True,
-                    color="darkred"
+                    color=SEMANTIC_COLORS['negative'],
+                    thickness=2
                 ),
                 name="Negative DART_SLT (Absolute Values)",
-                marker_color="lightcoral",
+                marker_color=SEMANTIC_COLORS['negative_fill'],
+                marker_line=dict(color=SEMANTIC_COLORS['negative'], width=1),
                 opacity=0.8,
                 offsetgroup=2
             )
         )
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform by Delivery Day - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            xaxis_title="Delivery Day",
-            yaxis_title="Mean Signed-Log Transformed DART",
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform by Delivery Day - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Note: Negative values shown as absolute values for comparison with positive values</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
             showlegend=True,
+            legend_position='upper_right'
+        )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling  
+        apply_professional_axis_styling(fig, rows=1, cols=1)
+        
+        # Update specific axis labels and settings
+        fig.update_xaxes(title_text="Delivery Day")
+        fig.update_yaxes(title_text="Mean Signed-Log Transformed DART")
+        fig.update_layout(
             barmode="group",  # Group bars side by side
             bargap=0.2,      # Gap between groups
             bargroupgap=0.1  # Gap between bars in a group
@@ -1293,10 +1406,12 @@ def plot_dart_slt_by_hour(
                     type="data",
                     array=positive_stats["std"],
                     visible=True,
-                    color="darkblue"
+                    color=SEMANTIC_COLORS['positive'],
+                    thickness=2
                 ),
                 name="Positive DART_SLT",
-                marker_color="lightblue",
+                marker_color=SEMANTIC_COLORS['positive_fill'],
+                marker_line=dict(color=SEMANTIC_COLORS['positive'], width=1),
                 opacity=0.8,
                 offsetgroup=1
             )
@@ -1311,26 +1426,34 @@ def plot_dart_slt_by_hour(
                     type="data",
                     array=negative_stats["std"],
                     visible=True,
-                    color="darkred"
+                    color=SEMANTIC_COLORS['negative'],
+                    thickness=2
                 ),
                 name="Negative DART_SLT (Absolute Values)",
-                marker_color="lightcoral",
+                marker_color=SEMANTIC_COLORS['negative_fill'],
+                marker_line=dict(color=SEMANTIC_COLORS['negative'], width=1),
                 opacity=0.8,
                 offsetgroup=2
             )
         )
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform by Delivery Hour (Local Time) - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            xaxis_title="Delivery Hour (Central Time Ending Hour)",
-            yaxis_title="Mean Signed-Log Transformed DART",
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform by Delivery Hour (Local Time) - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Note: Negative values shown as absolute values for comparison with positive values</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
             showlegend=True,
+            legend_position='upper_right'
+        )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=1)
+        
+        # Update specific axis labels and settings
+        fig.update_xaxes(title_text="Delivery Hour (Central Time Ending Hour)")
+        fig.update_yaxes(title_text="Mean Signed-Log Transformed DART")
+        fig.update_layout(
             barmode="group",  # Group bars side by side
             bargap=0.2,      # Gap between groups
             bargroupgap=0.1  # Gap between bars in a group
@@ -1460,30 +1583,32 @@ def plot_dart_slt_power_spectrum(
                 y=spectrum_results["power_spectrum_db"],
                 mode="lines",
                 name=f"{point} Power Spectrum",
-                line=dict(color="blue", width=1.5),
+                line=dict(color=SEMANTIC_COLORS['positive'], width=2.5),
                 showlegend=True
             )
         )
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Power Spectrum Analysis - {point}{title_suffix}<br><sub>Frequency domain analysis</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            xaxis_title="Frequency (Cycles per Day)",
-            yaxis_title="Power Spectral Density (dB)",
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform Power Spectrum Analysis - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Frequency domain analysis</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
             showlegend=True,
-            xaxis=dict(
-                type="log",
-                range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
-                title="Frequency (Cycles per Day)"
-            ),
-            yaxis=dict(
-                title="Power Spectral Density (dB)"
-            )
+            legend_position='upper_right'
+        )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=1)
+        
+        # Update specific axis configuration
+        fig.update_xaxes(
+            title_text="Frequency (Cycles per Day)",
+            type="log",
+            range=[-2, 1.5]  # Show from 0.01 to ~30 cycles/day
+        )
+        fig.update_yaxes(
+            title_text="Power Spectral Density (dB)"
         )
         
         # Save individual plot
@@ -1636,7 +1761,7 @@ def plot_dart_slt_power_spectrum_bimodal(
                     y=spectrum_results["power_spectrum_db"],
                     mode="lines",
                     name=f"{name}",
-                    line=dict(color=color, width=1.5),
+                    line=dict(color=SEMANTIC_COLORS['positive'] if row == 1 else SEMANTIC_COLORS['negative'], width=2),
                     showlegend=True
                 ),
                 row=row, col=1
@@ -1661,15 +1786,13 @@ def plot_dart_slt_power_spectrum_bimodal(
             bimodal_spectrum_stats.append(mode_stats)
         
         # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Bimodal Power Spectrum Analysis - {point}{title_suffix}<br><sub>Separate frequency analysis for positive and negative values</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
+        professional_title = f"DART Signed-Log Transform Bimodal Power Spectrum Analysis - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Separate frequency analysis for positive and negative values</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=900,  # Increased from 800 to 900 for better spacing
             showlegend=True
         )
+        fig.update_layout(**layout)
         
         # Update axis labels
         fig.update_yaxes(title_text="Power Spectral Density (dB)", row=1, col=1)
@@ -2665,3 +2788,569 @@ def plot_dart_slt_sign_transitions(
         print(f"  Statistics saved to: {stats_path}")
     
     print(f"Sign transition analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_kmeans_unimodal(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = "",
+    max_k: int = 10
+) -> None:
+    """Create K-means clustering analysis of signed log transformed DART for each settlement point (unimodal).
+    
+    Performs K-means clustering on the entire DART_SLT distribution to identify natural groupings
+    in the data. Creates plots showing the elbow method for optimal K selection and
+    the resulting cluster centers overlaid on the data distribution.
+    
+    Creates separate plots for each settlement point with:
+    - Left subplot: Elbow curve (inertia vs K) for optimal K selection
+    - Right subplot: Histogram of DART_SLT with vertical lines at cluster centers
+    
+    Args:
+        df: DataFrame containing dart_slt column, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+        max_k: Maximum number of clusters to evaluate (default: 10)
+    """
+    # Define professional color palette (colorblind-friendly)
+    colors = {
+        'primary': '#2E86AB',      # Professional blue
+        'secondary': '#A23B72',    # Deep magenta 
+        'accent': '#F18F01',       # Warm orange
+        'neutral': '#C73E1D',      # Deep red
+        'success': '#4A7A8A',      # Teal
+        'background': '#F5F5F5',   # Light gray
+        'text': '#2C3E50',         # Dark blue-gray
+        'histogram': 'rgba(46, 134, 171, 0.6)',  # Semi-transparent primary
+    }
+    
+    # Prepare data
+    df = df.copy()
+    
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
+    # Verify dart_slt column exists
+    if "dart_slt" not in df.columns:
+        raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating K-means unimodal analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
+        
+        # Remove NaN values
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        
+        if len(dart_slt_clean) < max_k * 10:  # Need sufficient data for clustering
+            print(f"Warning: Insufficient data for {point} ({len(dart_slt_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(dart_slt_clean)} data points with max_k={max_k}")
+        
+        try:
+            # Perform K-means clustering analysis
+            kmeans_results = compute_kmeans_clustering(
+                time_series=dart_slt_clean.values,
+                max_k=max_k,
+                random_state=42
+            )
+            
+            print(f"  Optimal K: {kmeans_results['optimal_k']}")
+            
+        except Exception as e:
+            print(f"Warning: K-means clustering failed for {point}: {e}")
+            continue
+        
+        # Create subplot with 1 row, 2 columns
+        fig = make_subplots(
+            rows=1, cols=2,
+            shared_yaxes=False,
+            horizontal_spacing=0.15,
+            subplot_titles=[
+                f"Elbow Method Analysis",
+                f"Distribution with K={kmeans_results['optimal_k']} Clusters"
+            ]
+        )
+        
+        # Plot 1: Elbow curve (inertia vs K)
+        fig.add_trace(
+            go.Scatter(
+                x=kmeans_results["k_values"],
+                y=kmeans_results["inertias"],
+                mode="lines+markers",
+                name="Inertia",
+                line=dict(color=colors['primary'], width=3),
+                marker=dict(size=8, color=colors['primary']),
+                showlegend=True
+            ),
+            row=1, col=1
+        )
+        
+        # Highlight optimal K
+        optimal_idx = kmeans_results["optimal_k"] - 1  # Convert to 0-based index
+        fig.add_trace(
+            go.Scatter(
+                x=[kmeans_results["optimal_k"]],
+                y=[kmeans_results["inertias"][optimal_idx]],
+                mode="markers",
+                name=f"Optimal K={kmeans_results['optimal_k']}",
+                marker=dict(
+                    color=colors['accent'], 
+                    size=14, 
+                    symbol="diamond",
+                    line=dict(width=2, color=colors['text'])
+                ),
+                showlegend=True
+            ),
+            row=1, col=1
+        )
+        
+        # Plot 2: Distribution with cluster centers
+        fig.add_trace(
+            go.Histogram(
+                x=dart_slt_clean,
+                name="DART_SLT Distribution",
+                nbinsx=60,
+                histnorm="probability density",
+                opacity=0.8,
+                marker_color=colors['histogram'],
+                marker_line=dict(width=1, color=colors['primary']),
+                showlegend=True
+            ),
+            row=1, col=2
+        )
+        
+        # Add vertical lines for cluster centers with professional styling
+        cluster_colors = [colors['secondary'], colors['success'], colors['neutral'], 
+                         colors['accent'], '#8B4513', '#556B2F', '#4B0082', '#DC143C']
+        
+        # Calculate annotation positions to avoid overlap
+        y_max = max(np.histogram(dart_slt_clean, bins=60, density=True)[0])
+        annotation_heights = [y_max * 0.9, y_max * 0.8, y_max * 0.7, y_max * 0.85, 
+                            y_max * 0.75, y_max * 0.65, y_max * 0.95, y_max * 0.6]
+        
+        for i, center in enumerate(kmeans_results["cluster_centers"]):
+            color = cluster_colors[i % len(cluster_colors)]
+            fig.add_vline(
+                x=center,
+                line_dash="dash",
+                line_color=color,
+                line_width=2.5,
+                row=1, col=2
+            )
+            
+            # Add annotation as a scatter point instead of vline annotation to avoid overlap
+            fig.add_trace(
+                go.Scatter(
+                    x=[center],
+                    y=[annotation_heights[i % len(annotation_heights)]],
+                    mode="markers+text",
+                    marker=dict(
+                        color=color,
+                        size=8,
+                        symbol="diamond"
+                    ),
+                    text=[f"C{i+1}: {center:.2f}"],
+                    textposition="top center",
+                    textfont=dict(size=10, color=color),
+                    showlegend=False,
+                    name=""
+                ),
+                row=1, col=2
+            )
+        
+        # Update layout with professional styling and better spacing
+        fig.update_layout(
+            title={
+                "text": f"K-means Clustering Analysis (Unimodal) - {point}{title_suffix}<br><sub style='color:{colors['text']}'>Elbow method for optimal cluster identification</sub>",
+                "x": 0.5,
+                "xanchor": "center",
+                "font": {"size": 16, "color": colors['text']}
+            },
+            height=650,  # Increased height to accommodate annotations
+            width=1300,  # Increased width for better spacing
+            showlegend=True,
+            legend=dict(
+                x=0.02,  # Position legend in upper left to avoid histogram area
+                y=0.98,
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor=colors['text'],
+                borderwidth=1,
+                font=dict(color=colors['text'], size=11)
+            ),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            margin=dict(t=100, b=60, l=60, r=60)  # Add margins for better spacing
+        )
+        
+        # Update axis labels with professional styling
+        fig.update_xaxes(
+            title_text="Number of Clusters (K)", 
+            row=1, col=1,
+            title_font=dict(color=colors['text']),
+            tickfont=dict(color=colors['text']),
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        fig.update_yaxes(
+            title_text="Inertia (Within-cluster sum of squares)", 
+            row=1, col=1,
+            title_font=dict(color=colors['text']),
+            tickfont=dict(color=colors['text']),
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        fig.update_xaxes(
+            title_text="DART_SLT Value", 
+            row=1, col=2,
+            title_font=dict(color=colors['text']),
+            tickfont=dict(color=colors['text']),
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        fig.update_yaxes(
+            title_text="Probability Density", 
+            row=1, col=2,
+            title_font=dict(color=colors['text']),
+            tickfont=dict(color=colors['text']),
+            gridcolor='rgba(128,128,128,0.2)'
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_kmeans_unimodal_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save clustering statistics
+        cluster_stats = [{
+            "Settlement_Point": point,
+            "Data_Points": len(dart_slt_clean),
+            "Max_K_Tested": max_k,
+            "Optimal_K": kmeans_results["optimal_k"],
+            "Optimal_Inertia": kmeans_results["inertias"][optimal_idx],
+            "Cluster_Centers": list(kmeans_results["cluster_centers"])
+        }]
+        
+        # Add individual cluster information
+        for i, center in enumerate(kmeans_results["cluster_centers"]):
+            cluster_mask = kmeans_results["labels"] == i
+            cluster_size = np.sum(cluster_mask)
+            cluster_stats[0][f"Cluster_{i+1}_Center"] = center
+            cluster_stats[0][f"Cluster_{i+1}_Size"] = cluster_size
+            cluster_stats[0][f"Cluster_{i+1}_Proportion"] = cluster_size / len(dart_slt_clean)
+        
+        cluster_stats_df = pd.DataFrame(cluster_stats)
+        stats_path = output_dir / f"dart_slt_kmeans_unimodal_stats_{safe_filename}.csv"
+        cluster_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"K-means unimodal analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_kmeans_bimodal(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = "",
+    max_k: int = 10
+) -> None:
+    """Create K-means clustering analysis of signed log transformed DART for each settlement point (bimodal).
+    
+    Performs separate K-means clustering on positive and negative (absolute value) DART_SLT values
+    to identify natural groupings within each mode of the bimodal distribution.
+    
+    Creates separate plots for each settlement point with:
+    - Upper left: Elbow curve for positive DART_SLT values
+    - Upper right: Positive DART_SLT histogram with cluster centers
+    - Lower left: Elbow curve for negative DART_SLT values (absolute)
+    - Lower right: Negative DART_SLT histogram (absolute) with cluster centers
+    
+    Args:
+        df: DataFrame containing dart_slt column, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+        max_k: Maximum number of clusters to evaluate (default: 10)
+    """
+    # Define professional color palette (colorblind-friendly)
+    colors = {
+        'primary': '#2E86AB',      # Professional blue
+        'secondary': '#A23B72',    # Deep magenta 
+        'accent': '#F18F01',       # Warm orange
+        'neutral': '#C73E1D',      # Deep red
+        'success': '#4A7A8A',      # Teal
+        'background': '#F5F5F5',   # Light gray
+        'text': '#2C3E50',         # Dark blue-gray
+        'positive': 'rgba(46, 134, 171, 0.6)',    # Semi-transparent blue
+        'negative': 'rgba(162, 59, 114, 0.6)',    # Semi-transparent magenta
+    }
+    
+    # Prepare data
+    df = df.copy()
+    
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
+    # Verify dart_slt column exists
+    if "dart_slt" not in df.columns:
+        raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating K-means bimodal analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
+        
+        # Separate positive and negative values
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        positive_values = dart_slt_clean[dart_slt_clean > 0]
+        negative_values = dart_slt_clean[dart_slt_clean < 0].abs()  # Take absolute values
+        
+        if len(positive_values) < max_k * 5 and len(negative_values) < max_k * 5:
+            print(f"Warning: Insufficient data for both modes for {point}, skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(positive_values)} positive, {len(negative_values)} negative values")
+        
+        # Create subplot with 2 rows, 2 columns
+        fig = make_subplots(
+            rows=2, cols=2,
+            shared_xaxes=False,
+            vertical_spacing=0.25,
+            horizontal_spacing=0.12,
+            subplot_titles=[
+                "Positive Values: Elbow Analysis",
+                "Positive Values: Distribution with Clusters", 
+                "Negative Values (Abs): Elbow Analysis",
+                "Negative Values (Abs): Distribution with Clusters"
+            ]
+        )
+        
+        # Store clustering results for both modes
+        bimodal_cluster_stats = []
+        
+        # Process both datasets
+        datasets = [
+            (positive_values, "Positive DART_SLT", colors['primary'], colors['positive'], 1),
+            (negative_values, "Negative DART_SLT (Abs)", colors['secondary'], colors['negative'], 2)
+        ]
+        
+        for data, name, line_color, hist_color, row in datasets:
+            if len(data) < max_k * 5:  # Skip if insufficient data
+                print(f"Warning: Insufficient data for {point} {name} ({len(data)} points)")
+                continue
+            
+            try:
+                # Perform K-means clustering analysis
+                kmeans_results = compute_kmeans_clustering(
+                    time_series=data.values,
+                    max_k=max_k,
+                    random_state=42
+                )
+                
+                print(f"  {name} Optimal K: {kmeans_results['optimal_k']}")
+                
+            except Exception as e:
+                print(f"Warning: K-means clustering failed for {point} {name}: {e}")
+                continue
+            
+            # Plot elbow curve (left column)
+            fig.add_trace(
+                go.Scatter(
+                    x=kmeans_results["k_values"],
+                    y=kmeans_results["inertias"],
+                    mode="lines+markers",
+                    name=f"{name} Inertia",
+                    line=dict(color=line_color, width=3),
+                    marker=dict(size=6, color=line_color),
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+            
+            # Highlight optimal K
+            optimal_idx = kmeans_results["optimal_k"] - 1
+            fig.add_trace(
+                go.Scatter(
+                    x=[kmeans_results["optimal_k"]],
+                    y=[kmeans_results["inertias"][optimal_idx]],
+                    mode="markers",
+                    name=f"{name} K={kmeans_results['optimal_k']}",
+                    marker=dict(
+                        color=colors['accent'], 
+                        size=12, 
+                        symbol="diamond",
+                        line=dict(width=2, color=colors['text'])
+                    ),
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+            
+            # Plot distribution with cluster centers (right column)
+            fig.add_trace(
+                go.Histogram(
+                    x=data,
+                    name=f"{name} Distribution",
+                    nbinsx=40,
+                    histnorm="probability density",
+                    opacity=0.8,
+                    marker_color=hist_color,
+                    marker_line=dict(width=1, color=line_color),
+                    showlegend=True
+                ),
+                row=row, col=2
+            )
+            
+            # Add vertical lines for cluster centers with smart positioning
+            cluster_colors = [colors['accent'], colors['neutral'], colors['success'], 
+                            '#8B4513', '#556B2F', '#4B0082', '#DC143C', '#FF6347']
+            
+            # Calculate histogram for annotation positioning
+            hist_counts, hist_edges = np.histogram(data, bins=40, density=True)
+            y_max = max(hist_counts)
+            annotation_heights = [y_max * 0.9, y_max * 0.8, y_max * 0.7, y_max * 0.85, 
+                                y_max * 0.75, y_max * 0.65, y_max * 0.95, y_max * 0.6]
+            
+            for i, center in enumerate(kmeans_results["cluster_centers"]):
+                color = cluster_colors[i % len(cluster_colors)]
+                
+                # Add vertical line
+                fig.add_vline(
+                    x=center,
+                    line_dash="dash",
+                    line_color=color,
+                    line_width=2,
+                    row=row, col=2
+                )
+                
+                # Add cluster center as scatter point with text
+                fig.add_trace(
+                    go.Scatter(
+                        x=[center],
+                        y=[annotation_heights[i % len(annotation_heights)]],
+                        mode="markers+text",
+                        marker=dict(
+                            color=color,
+                            size=6,
+                            symbol="diamond"
+                        ),
+                        text=[f"C{i+1}: {center:.2f}"],
+                        textposition="top center",
+                        textfont=dict(size=9, color=color),
+                        showlegend=False,
+                        name=""
+                    ),
+                    row=row, col=2
+                )
+            
+            # Store statistics for this mode
+            mode_stats = {
+                "Settlement_Point": point,
+                "Mode": name,
+                "Data_Points": len(data),
+                "Max_K_Tested": max_k,
+                "Optimal_K": kmeans_results["optimal_k"],
+                "Optimal_Inertia": kmeans_results["inertias"][optimal_idx],
+                "Cluster_Centers": list(kmeans_results["cluster_centers"])
+            }
+            
+            # Add individual cluster information
+            for i, center in enumerate(kmeans_results["cluster_centers"]):
+                cluster_mask = kmeans_results["labels"] == i
+                cluster_size = np.sum(cluster_mask)
+                mode_stats[f"Cluster_{i+1}_Center"] = center
+                mode_stats[f"Cluster_{i+1}_Size"] = cluster_size
+                mode_stats[f"Cluster_{i+1}_Proportion"] = cluster_size / len(data)
+            
+            bimodal_cluster_stats.append(mode_stats)
+        
+        # Update layout with professional styling and better spacing
+        fig.update_layout(
+            title={
+                "text": f"K-means Clustering Analysis (Bimodal) - {point}{title_suffix}<br><sub style='color:{colors['text']}'>Separate clustering analysis for positive and negative values</sub>",
+                "x": 0.5,
+                "xanchor": "center",
+                "font": {"size": 16, "color": colors['text']}
+            },
+            height=950,  # Increased height for 2x2 layout
+            width=1400,  # Increased width for better spacing
+            showlegend=True,
+            legend=dict(
+                x=1.02,  # Position legend outside plot area to the right
+                y=1,
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor=colors['text'],
+                borderwidth=1,
+                font=dict(color=colors['text'], size=10)
+            ),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            margin=dict(t=100, b=60, l=60, r=150)  # Extra right margin for external legend
+        )
+        
+        # Update axis labels with professional styling
+        for row in [1, 2]:
+            fig.update_xaxes(
+                title_text="Number of Clusters (K)", 
+                row=row, col=1,
+                title_font=dict(color=colors['text'], size=12),
+                tickfont=dict(color=colors['text']),
+                gridcolor='rgba(128,128,128,0.2)'
+            )
+            fig.update_yaxes(
+                title_text="Inertia", 
+                row=row, col=1,
+                title_font=dict(color=colors['text'], size=12),
+                tickfont=dict(color=colors['text']),
+                gridcolor='rgba(128,128,128,0.2)'
+            )
+            fig.update_xaxes(
+                title_text="DART_SLT Value", 
+                row=row, col=2,
+                title_font=dict(color=colors['text'], size=12),
+                tickfont=dict(color=colors['text']),
+                gridcolor='rgba(128,128,128,0.2)'
+            )
+            fig.update_yaxes(
+                title_text="Probability Density", 
+                row=row, col=2,
+                title_font=dict(color=colors['text'], size=12),
+                tickfont=dict(color=colors['text']),
+                gridcolor='rgba(128,128,128,0.2)'
+            )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_kmeans_bimodal_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save bimodal clustering statistics
+        if bimodal_cluster_stats:
+            bimodal_cluster_stats_df = pd.DataFrame(bimodal_cluster_stats)
+            stats_path = output_dir / f"dart_slt_kmeans_bimodal_stats_{safe_filename}.csv"
+            bimodal_cluster_stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"K-means bimodal analysis complete: {len(unique_points)} settlement points processed")
