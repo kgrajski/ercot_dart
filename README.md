@@ -6,6 +6,8 @@ This initial analysis explores the hourly differences between ERCOT real-time ma
 
 The dataset spans **January 1, 2024 through June 5, 2025**, and the data products needed to support these computations were downloaded via the [ERCOT Public API](https://www.ercot.com/mp/data-products).
 
+Note, the figures below are .png.  Each figure is also available by request as a plotly html for interactive exploration.
+
 ---
 
 ## Temporal Dynamics
@@ -90,6 +92,8 @@ Hourly sign probability by day of week and hour shows:
   - Counterintuitive?  Could make sense if DAM forecasts tend to be conservative?
 - Higher **positive DART** probability overnight and early morning
 - Weekends display flatter patterns
+
+---
 
 ![DART Average Heatmap](reports/figures/initial_dart_houston/dart_average_daily_heatmap_LZ_HOUSTON_LZ.png)
 
