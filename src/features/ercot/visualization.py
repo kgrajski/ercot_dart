@@ -2018,30 +2018,32 @@ def plot_dart_slt_sign_power_spectrum(
                 y=spectrum_results["power_spectrum_db"],
                 mode="lines",
                 name=f"{point} Sign Sequence",
-                line=dict(color="green", width=1.5),
+                line=dict(color=COLOR_SEQUENCE[2], width=2.5),  # Professional orange
                 showlegend=True
             )
         )
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Sign Sequence Power Spectrum - {point}{title_suffix}<br><sub>Frequency analysis of positive/negative timing patterns</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            xaxis_title="Frequency (Cycles per Day)",
-            yaxis_title="Power Spectral Density (dB)",
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform Sign Sequence Power Spectrum - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Frequency analysis of positive/negative timing patterns</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
             showlegend=True,
-            xaxis=dict(
-                type="log",
-                range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
-                title="Frequency (Cycles per Day)"
-            ),
-            yaxis=dict(
-                title="Power Spectral Density (dB)"
-            )
+            legend_position='upper_right'
+        )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=1)
+        
+        # Update specific axis configuration
+        fig.update_xaxes(
+            title_text="Frequency (Cycles per Day)",
+            type="log",
+            range=[-2, 1.5]  # Show from 0.01 to ~30 cycles/day
+        )
+        fig.update_yaxes(
+            title_text="Power Spectral Density (dB)"
         )
         
         # Save individual plot
@@ -2367,19 +2369,23 @@ def plot_dart_slt_spectrogram(
             )
         ))
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Spectrogram - {point}{title_suffix}<br><sub>Time-frequency analysis showing spectral evolution</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            xaxis_title="Time",
-            yaxis_title="Frequency (Cycles per Day)",
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform Spectrogram - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Time-frequency analysis showing spectral evolution</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
             height=600,
-            yaxis=dict(
-                range=[0, min(10, frequencies_cpd.max())]  # Focus on 0-10 cycles/day
-            )
+            showlegend=False
+        )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=1, cols=1)
+        
+        # Update specific axis configuration
+        fig.update_xaxes(title_text="Time")
+        fig.update_yaxes(
+            title_text="Frequency (Cycles per Day)",
+            range=[0, min(10, frequencies_cpd.max())]  # Focus on 0-10 cycles/day
         )
         
         # Save individual plot
@@ -2806,7 +2812,7 @@ def plot_dart_slt_sign_transitions(
                     x=run_lengths_pos,
                     name="Positive Runs",
                     xbins=dict(start=0.5, end=max(bins)+0.5, size=1),
-                    marker_color="blue",
+                    marker_color=SEMANTIC_COLORS['positive'],
                     opacity=0.7,
                     legendgroup="runs",
                     showlegend=True
@@ -2820,7 +2826,7 @@ def plot_dart_slt_sign_transitions(
                     x=run_lengths_neg,
                     name="Negative Runs", 
                     xbins=dict(start=0.5, end=max(bins)+0.5, size=1),
-                    marker_color="red",
+                    marker_color=SEMANTIC_COLORS['negative'],
                     opacity=0.7,
                     legendgroup="runs",
                     showlegend=True
@@ -2837,7 +2843,7 @@ def plot_dart_slt_sign_transitions(
                 x=hour_counts.index,
                 y=hour_counts.values,
                 name="Sign Changes",
-                marker_color="green",
+                marker_color=COLOR_SEQUENCE[2],  # Professional orange
                 hovertemplate="Hour %{x}: %{y} sign changes<extra></extra>",
                 showlegend=False  # Turn off legend for this bar chart
             ),
@@ -2854,34 +2860,26 @@ def plot_dart_slt_sign_transitions(
                 x=weekday_transitions.index,
                 y=weekday_transitions.values,
                 name="Sign Changes",
-                marker_color="orange",
+                marker_color=COLOR_SEQUENCE[3],  # Professional teal
                 hovertemplate="%{x}: %{y} sign changes<extra></extra>",
                 showlegend=False  # Turn off legend for this bar chart
             ),
             row=2, col=2
         )
         
-        # Update layout
-        fig.update_layout(
-            title={
-                "text": f"DART Signed-Log Transform Sign Transition Analysis - {point}{title_suffix}<br><sub>Analysis of positive/negative switching patterns</sub>",
-                "x": 0.5,
-                "xanchor": "center"
-            },
-            height=900,  # Increased from 800
-            width=1400,  # Increased from 1200 
+        # Apply professional layout
+        professional_title = f"DART Signed-Log Transform Sign Transition Analysis - {point}{title_suffix}<br><sub style='color:{PROFESSIONAL_COLORS['text']}'>Analysis of positive/negative switching patterns</sub>"
+        layout = get_professional_layout(
+            title=professional_title,
+            height=900,
+            width=1400,
             showlegend=True,
-            legend=dict(
-                orientation="v",
-                yanchor="top",
-                y=0.95,
-                xanchor="right", 
-                x=0.98,  # Position in upper right of the run length subplot
-                bgcolor="rgba(255,255,255,0.9)",
-                bordercolor="rgba(0,0,0,0.3)",
-                borderwidth=1
-            )
+            legend_position='upper_right'
         )
+        fig.update_layout(**layout)
+        
+        # Apply professional axis styling
+        apply_professional_axis_styling(fig, rows=2, cols=2)
         
         # Update axis labels
         fig.update_xaxes(title_text="Run Length (Consecutive Hours)", row=1, col=2)
