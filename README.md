@@ -4,7 +4,7 @@
 
 This initial analysis explores the hourly differences between ERCOT real-time market (RTM) and day-ahead market (DAM) settlement prices — commonly referred to as **DART** (RTM minus DAM). We use **LZ_HOUSTON** as a representative settlement point. The focus is exploratory: understanding DART's statistical behavior, periodic structure, and temporal dynamics.
 
-The dataset spans **January 1, 2024 through June 5, 2025**, and was downloaded via the [ERCOT Public API](https://www.ercot.com/mp/data-products).
+The dataset spans **January 1, 2024 through June 5, 2025**, and the data products needed to support these computations were downloaded via the [ERCOT Public API](https://www.ercot.com/mp/data-products).
 
 ---
 
