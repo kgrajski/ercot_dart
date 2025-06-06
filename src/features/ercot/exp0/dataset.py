@@ -2,7 +2,23 @@
 
 import pandas as pd
 from ..exp_dataset import ExpDataset
-from ..visualization import plot_dart_by_location, plot_dart_distributions, plot_dart_boxplots, plot_dart_qqplots, plot_dart_slt_bimodal, plot_dart_slt_cumulative, plot_dart_slt_by_weekday, plot_dart_slt_by_hour
+from ..visualization import (
+    plot_dart_by_location,
+    plot_dart_distributions,
+    plot_dart_boxplots,
+    plot_dart_qqplots,
+    plot_dart_slt_bimodal,
+    plot_dart_slt_cumulative,
+    plot_dart_slt_by_weekday,
+    plot_dart_slt_by_hour,
+    plot_dart_slt_power_spectrum,
+    plot_dart_slt_power_spectrum_bimodal,
+    plot_dart_slt_sign_power_spectrum,
+    plot_dart_slt_sign_daily_heatmap,
+    plot_dart_slt_spectrogram,
+    plot_dart_slt_moving_window_stats,
+    plot_dart_slt_sign_transitions,
+)
 
 
 class Exp0Dataset(ExpDataset):
@@ -147,6 +163,55 @@ class Exp0Dataset(ExpDataset):
 
         # 8. Hour-of-day analysis of signed log transformed DART
         plot_dart_slt_by_hour(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 9. Power spectrum analysis of signed log transformed DART
+        plot_dart_slt_power_spectrum(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 10. Bimodal power spectrum analysis of signed log transformed DART
+        plot_dart_slt_power_spectrum_bimodal(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 11. Sign power spectrum analysis of signed log transformed DART
+        plot_dart_slt_sign_power_spectrum(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 12. Sign daily heatmap analysis of signed log transformed DART
+        plot_dart_slt_sign_daily_heatmap(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 13. Spectrogram analysis of signed log transformed DART
+        plot_dart_slt_spectrogram(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 14. Moving window statistics analysis of signed log transformed DART
+        plot_dart_slt_moving_window_stats(
+            df=result_df,
+            output_dir=self.output_dir,
+            title_suffix=" - Exp0"
+        )
+
+        # 15. Sign transitions analysis of signed log transformed DART
+        plot_dart_slt_sign_transitions(
             df=result_df,
             output_dir=self.output_dir,
             title_suffix=" - Exp0"

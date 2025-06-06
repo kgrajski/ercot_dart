@@ -48,15 +48,17 @@ def main():
     
     print("\nGenerating dependent variables...")
     exp0.dependent_vars = exp0.generate_dependent_vars()
+
+    if 0:
     
-    print("\nGenerating independent variables...")
-    exp0.independent_vars = exp0.generate_independent_vars()
-    
-    print("\nSaving experimental dataset...")
-    exp0.save_dataset()
-    
-    print("\nRunning exploratory data analysis...")
-    exp0.run_eda()
+        print("\nGenerating independent variables...")
+        exp0.independent_vars = exp0.generate_independent_vars()
+        
+        print("\nSaving experimental dataset...")
+        exp0.save_dataset()
+        
+        print("\nRunning exploratory data analysis...")
+        exp0.run_eda()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

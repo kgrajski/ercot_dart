@@ -9,14 +9,112 @@ from plotly.subplots import make_subplots
 from scipy import stats
 
 
+def compute_power_spectrum(
+    time_series: np.ndarray,
+    timestamps: pd.Series,
+    peak_percentile: float = 85
+) -> dict:
+    """Compute power spectrum analysis of a time series using FFT.
+    
+    Performs Fast Fourier Transform (FFT) on the input time series to identify
+    periodic patterns and frequency components.
+    
+    Args:
+        time_series: 1D numpy array of time series values
+        timestamps: Pandas Series of timestamps corresponding to the time series
+        peak_percentile: Percentile threshold for identifying spectral peaks (default: 85)
+        
+    Returns:
+        dict containing:
+            - freq_bins_per_day: Frequency bins in cycles per day
+            - power_spectrum_db: Power spectral density in dB
+            - sampling_freq_per_day: Sampling frequency in cycles per day
+            - n_samples: Number of samples in the time series
+            - dc_power_db: DC component power in dB
+            - peak_indices: List of indices of spectral peaks
+            - peak_frequencies: List of peak frequencies in cycles per day
+            - peak_periods: List of peak periods in hours
+            - peak_powers: List of peak powers in dB
+    """
+    # Convert timestamps to pandas datetime if not already
+    timestamps = pd.to_datetime(timestamps)
+    
+    # Calculate sampling frequency
+    time_diffs = timestamps.diff().dropna()
+    median_dt = time_diffs.median()
+    
+    if median_dt.total_seconds() == 0:
+        raise ValueError("Zero time differences found in timestamps")
+        
+    sampling_freq_hz = 1 / median_dt.total_seconds()  # Hz
+    sampling_freq_per_day = sampling_freq_hz * 86400  # cycles per day
+    
+    # Perform FFT
+    n_samples = len(time_series)
+    fft_values = np.fft.fft(time_series)
+    
+    # Calculate one-sided power spectrum
+    n_oneside = n_samples // 2
+    fft_magnitude = np.abs(fft_values[:n_oneside])
+    
+    # Convert to power spectral density and then to dB
+    power_spectrum = (fft_magnitude ** 2) / n_samples
+    power_spectrum[1:] *= 2  # Double power for positive frequencies (except DC)
+    
+    # Convert to dB
+    power_spectrum_db = 10 * np.log10(power_spectrum + 1e-12)
+    
+    # Calculate frequency axis in cycles per day
+    freq_bins_hz = np.fft.fftfreq(n_samples, d=1/sampling_freq_hz)[:n_oneside]
+    freq_bins_per_day = freq_bins_hz * 86400  # Convert Hz to cycles per day
+    
+    # Find dominant frequencies (spectral peaks)
+    peak_indices = []
+    peak_frequencies = []
+    peak_periods = []
+    peak_powers = []
+    
+    if len(power_spectrum_db) > 1:
+        peak_threshold = np.percentile(power_spectrum_db[1:], peak_percentile)
+        
+        for j in range(1, len(power_spectrum_db)):
+            if power_spectrum_db[j] > peak_threshold:
+                # Check if it's a local maximum
+                is_peak = True
+                window = 3
+                for k in range(max(1, j-window), min(len(power_spectrum_db), j+window+1)):
+                    if k != j and power_spectrum_db[k] > power_spectrum_db[j]:
+                        is_peak = False
+                        break
+                if is_peak:
+                    peak_indices.append(j)
+                    freq_cpd = freq_bins_per_day[j]
+                    peak_frequencies.append(freq_cpd)
+                    period_hours = 24 / freq_cpd if freq_cpd > 0 else float("inf")
+                    peak_periods.append(period_hours)
+                    peak_powers.append(power_spectrum_db[j])
+    
+    return {
+        "freq_bins_per_day": freq_bins_per_day,
+        "power_spectrum_db": power_spectrum_db,
+        "sampling_freq_per_day": sampling_freq_per_day,
+        "n_samples": n_samples,
+        "dc_power_db": power_spectrum_db[0],
+        "peak_indices": peak_indices,
+        "peak_frequencies": peak_frequencies,
+        "peak_periods": peak_periods,
+        "peak_powers": peak_powers
+    }
+
+
 def plot_dart_by_location(
     df: pd.DataFrame,
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create DART (Day-Ahead to Real-Time) price difference visualization.
+    """Create DART (Day-Ahead to Real-Time) price difference visualization for each settlement point.
     
-    Creates a subplot with:
+    Creates separate plots for each settlement point with:
     - Upper plot: Raw DART price differences
     - Lower plot: Signed log transformed DART price differences
     
@@ -43,86 +141,92 @@ def plot_dart_by_location(
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Create subplot with 2 rows
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.1,
-        subplot_titles=[
-            f"Raw DART Price Differences{title_suffix}",
-            f"Signed Log Transformed DART Price Differences{title_suffix}"
-        ]
-    )
-    
-    # Get unique point identifiers and colors
+    # Get unique settlement points
     unique_points = df["point_identifier"].unique()
-    colors = px.colors.qualitative.Plotly[:len(unique_points)]
-    color_map = dict(zip(unique_points, colors))
+    print(f"Creating DART analysis plots for {len(unique_points)} settlement points")
     
-    # Add traces for raw DART (upper plot)
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
     for point in unique_points:
         point_data = df[df["point_identifier"] == point]
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_data)} data points")
+        
+        # Create subplot with 2 rows
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.1,
+            subplot_titles=[
+                f"Raw DART Price Differences - {point}{title_suffix}",
+                f"Signed Log Transformed DART Price Differences - {point}{title_suffix}"
+            ]
+        )
+        
+        # Add trace for raw DART (upper plot)
         fig.add_trace(
             go.Scatter(
                 x=point_data["local_ts"],
                 y=point_data["dart"],
                 mode="lines",
-                name=f"{point} (Raw)",
-                line=dict(color=color_map[point]),
-                legendgroup=point,
+                name="Raw DART",
+                line=dict(color="blue"),
                 showlegend=True
             ),
             row=1, col=1
         )
-    
-    # Add traces for signed log transformed DART (lower plot)
-    for point in unique_points:
-        point_data = df[df["point_identifier"] == point]
+        
+        # Add trace for signed log transformed DART (lower plot)
         fig.add_trace(
             go.Scatter(
                 x=point_data["local_ts"],
                 y=point_data["dart_slt"],
                 mode="lines",
-                name=f"{point} (SLT)",
-                line=dict(color=color_map[point]),
-                legendgroup=point,
+                name="SLT DART",
+                line=dict(color="red"),
                 showlegend=True
             ),
             row=2, col=1
         )
-    
-    # Add horizontal reference lines at y=0 for both plots
-    for row in [1, 2]:
-        fig.add_hline(
-            y=0,
-            line_dash="dash",
-            line_color="gray",
-            line_width=1,
-            row=row, col=1
+        
+        # Add horizontal reference lines at y=0 for both plots
+        for row in [1, 2]:
+            fig.add_hline(
+                y=0,
+                line_dash="dash",
+                line_color="gray",
+                line_width=1,
+                row=row, col=1
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title=f"DART Price Differences Analysis - {point}{title_suffix}",
+            height=800,
+            legend_title="Data Type"
         )
+        
+        # Update y-axis labels
+        fig.update_yaxes(title_text="DART Price Difference ($/MWh)", row=1, col=1)
+        fig.update_yaxes(title_text="Signed Log DART", row=2, col=1)
+        fig.update_xaxes(title_text="Time", row=2, col=1)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_by_location_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual data file
+        data_path = output_dir / f"dart_by_location_{safe_filename}.csv"
+        point_data.to_csv(data_path, index=False)
+        print(f"  Data saved to: {data_path}")
     
-    # Update layout
-    fig.update_layout(
-        title=f"DART Price Differences Analysis{title_suffix}",
-        height=800,
-        legend_title="Settlement Point (Type)"
-    )
-    
-    # Update y-axis labels
-    fig.update_yaxes(title_text="DART Price Difference ($/MWh)", row=1, col=1)
-    fig.update_yaxes(title_text="Signed Log DART", row=2, col=1)
-    fig.update_xaxes(title_text="Time", row=2, col=1)
-    
-    # Save plot
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_by_location.html"
-    fig.write_html(output_path)
-    print(f"DART comparison plot saved to: {output_path}")
-    
-    # Save the enhanced data (now includes dart_slt column)
-    data_path = output_dir / "dart_by_location.csv"
-    df.to_csv(data_path, index=False)
-    print(f"DART data (with SLT) saved to: {data_path}")
+    print(f"DART analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_distributions(
@@ -130,141 +234,158 @@ def plot_dart_distributions(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create histogram visualization of DART distributions with normal overlay and percentiles.
+    """Create histogram visualization of DART distributions for each settlement point.
     
-    Creates a subplot with:
+    Creates separate plots for each settlement point with:
     - Upper plot: Raw DART histogram with fitted normal distribution overlay
     - Lower plot: Signed log transformed DART histogram with fitted normal distribution overlay
     
     Args:
-        df: DataFrame containing DART data with 'dart' column
+        df: DataFrame containing DART data with 'dart' column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
     
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Remove NaN values for statistics
-    dart_clean = df["dart"].dropna()
-    dart_slt_clean = df["dart_slt"].dropna()
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating distribution analysis plots for {len(unique_points)} settlement points")
     
-    # Create subplot with 2 rows
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=False,
-        vertical_spacing=0.25,
-        subplot_titles=[
-            f"Raw DART Distribution{title_suffix}",
-            f"Signed Log Transformed DART Distribution{title_suffix}"
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
+        
+        # Remove NaN values for statistics
+        dart_clean = point_data["dart"].dropna()
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        
+        if len(dart_clean) < 10 or len(dart_slt_clean) < 10:
+            print(f"Warning: Insufficient data for {point}, skipping")
+            continue
+            
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(dart_clean)} raw, {len(dart_slt_clean)} transformed data points")
+        
+        # Create subplot with 2 rows
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.25,
+            subplot_titles=[
+                f"Raw DART Distribution - {point}{title_suffix}",
+                f"Signed Log Transformed DART Distribution - {point}{title_suffix}"
+            ]
+        )
+        
+        # Store statistics for this settlement point
+        point_stats = []
+        
+        # Plot histograms and overlays for both datasets
+        datasets = [
+            (dart_clean, "Raw DART", 1),
+            (dart_slt_clean, "SLT DART", 2)
         ]
-    )
-    
-    # Plot histograms and overlays for both datasets
-    datasets = [
-        (dart_clean, "Raw DART", "DART ($/MWh)", 1),
-        (dart_slt_clean, "SLT DART", "Signed Log DART", 2)
-    ]
-    
-    for data, name, xlabel, row in datasets:
-        # Calculate percentiles
-        percentiles = {
-            "67th": np.percentile(data, 67),
-            "90th": np.percentile(data, 90), 
-            "95th": np.percentile(data, 95),
-            "99th": np.percentile(data, 99)
-        }
         
-        # Fit normal distribution
-        mu, std = stats.norm.fit(data)
-        
-        # Create histogram
-        fig.add_trace(
-            go.Histogram(
-                x=data,
-                name=f"{name} Histogram",
-                nbinsx=50,
-                histnorm="probability density",
-                opacity=0.7,
-                marker_color="lightblue",
-                showlegend=True
-            ),
-            row=row, col=1
-        )
-        
-        # Create fitted normal distribution overlay
-        x_range = np.linspace(data.min(), data.max(), 100)
-        normal_curve = stats.norm.pdf(x_range, mu, std)
-        
-        fig.add_trace(
-            go.Scatter(
-                x=x_range,
-                y=normal_curve,
-                mode="lines",
-                name=f"{name} Normal Fit (μ={mu:.2f}, σ={std:.2f})",
-                line=dict(color="red", width=2),
-                showlegend=True
-            ),
-            row=row, col=1
-        )
-        
-        # Add percentile lines
-        colors = ["orange", "purple", "green", "darkred"]
-        positions = ["bottom right", "top right", "bottom left", "top left"]  # Stagger positions
-        angles = [45, -45, 45, -45]  # Alternate angling for better spacing
-        for i, (pct_name, pct_value) in enumerate(percentiles.items()):
-            fig.add_vline(
-                x=pct_value,
-                line_dash="dash",
-                line_color=colors[i],
-                line_width=2,
-                annotation_text=pct_name,  # Just the percentile name, not the value
-                annotation_position=positions[i],
-                annotation_font_size=10,  # Smaller font size
-                annotation_textangle=angles[i],  # Angle the text
+        for data, data_type, row in datasets:
+            # Fit normal distribution
+            mu, std = stats.norm.fit(data)
+            
+            # Create histogram
+            fig.add_trace(
+                go.Histogram(
+                    x=data,
+                    name=f"{data_type} Histogram",
+                    nbinsx=120,  # Increased from 30 to 120 for finer resolution (1/4 current resolution)
+                    histnorm="probability density",
+                    opacity=0.6,
+                    marker_color="blue" if row == 1 else "red",
+                    showlegend=True
+                ),
                 row=row, col=1
             )
+            
+            # Create fitted normal distribution overlay
+            x_range = np.linspace(data.min(), data.max(), 100)
+            normal_curve = stats.norm.pdf(x_range, mu, std)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=x_range,
+                    y=normal_curve,
+                    mode="lines",
+                    name=f"{data_type} Normal Fit (μ={mu:.2f}, σ={std:.2f})",
+                    line=dict(color="darkblue" if row == 1 else "darkred", width=2, dash="dash"),
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+            
+            # Calculate percentiles for statistics
+            percentiles = {
+                "67th": np.percentile(data, 67),
+                "90th": np.percentile(data, 90), 
+                "95th": np.percentile(data, 95),
+                "99th": np.percentile(data, 99)
+            }
+            
+            # Store statistics
+            point_stats.append({
+                "Settlement_Point": point,
+                "Data_Type": data_type,
+                "Count": len(data),
+                "Mean": mu,
+                "Std": std,
+                "67th_Percentile": percentiles["67th"],
+                "90th_Percentile": percentiles["90th"],
+                "95th_Percentile": percentiles["95th"],
+                "99th_Percentile": percentiles["99th"],
+                "Min": data.min(),
+                "Max": data.max()
+            })
+        
+        # Update layout
+        fig.update_layout(
+            title=f"DART Distribution Analysis - {point}{title_suffix}",
+            height=800,
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="Probability Density", row=1, col=1)
+        fig.update_yaxes(title_text="Probability Density", row=2, col=1)
+        fig.update_xaxes(title_text="DART ($/MWh)", row=1, col=1)
+        fig.update_xaxes(title_text="Signed Log DART", row=2, col=1)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_distributions_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual statistics
+        if point_stats:
+            stats_df = pd.DataFrame(point_stats)
+            stats_path = output_dir / f"dart_distribution_stats_{safe_filename}.csv"
+            stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
     
-    # Update layout
-    fig.update_layout(
-        title=f"DART Distribution Analysis{title_suffix}",
-        height=800,
-        showlegend=True
-    )
-    
-    # Update axis labels
-    fig.update_yaxes(title_text="Probability Density", row=1, col=1)
-    fig.update_yaxes(title_text="Probability Density", row=2, col=1)
-    fig.update_xaxes(title_text="DART ($/MWh)", row=1, col=1)
-    fig.update_xaxes(title_text="Signed Log DART", row=2, col=1)
-    
-    # Save plot
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_distributions.html"
-    fig.write_html(output_path)
-    print(f"DART distribution plot saved to: {output_path}")
-    
-    # Save statistics summary
-    stats_summary = pd.DataFrame({
-        "Metric": ["Mean", "Std", "67th Percentile", "90th Percentile", "95th Percentile", "99th Percentile"],
-        "Raw_DART": [
-            dart_clean.mean(), dart_clean.std(),
-            np.percentile(dart_clean, 67), np.percentile(dart_clean, 90),
-            np.percentile(dart_clean, 95), np.percentile(dart_clean, 99)
-        ],
-        "SLT_DART": [
-            dart_slt_clean.mean(), dart_slt_clean.std(),
-            np.percentile(dart_slt_clean, 67), np.percentile(dart_slt_clean, 90),
-            np.percentile(dart_slt_clean, 95), np.percentile(dart_slt_clean, 99)
-        ]
-    })
-    
-    stats_path = output_dir / "dart_distribution_stats.csv"
-    stats_summary.to_csv(stats_path, index=False)
-    print(f"DART distribution statistics saved to: {stats_path}")
+    print(f"Distribution analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_boxplots(
@@ -272,11 +393,11 @@ def plot_dart_boxplots(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create box plot visualization of DART distributions.
+    """Create box plot visualization of DART distributions for each settlement point.
     
-    Creates a subplot with:
-    - Left plot: Raw DART box plot by location
-    - Right plot: Signed log transformed DART box plot by location
+    Creates separate plots for each settlement point with:
+    - Left plot: Raw DART box plot
+    - Right plot: Signed log transformed DART box plot
     
     Args:
         df: DataFrame containing DART data with 'dart' column and 'point_identifier'
@@ -297,96 +418,111 @@ def plot_dart_boxplots(
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Create subplot with 1 row, 2 columns (side by side)
-    fig = make_subplots(
-        rows=1, cols=2,
-        shared_yaxes=False,
-        horizontal_spacing=0.15,
-        subplot_titles=[
-            f"Raw DART Box Plots{title_suffix}",
-            f"Signed Log Transformed DART Box Plots{title_suffix}"
-        ]
-    )
-    
-    # Get unique points for consistent colors
+    # Get unique settlement points
     unique_points = df["point_identifier"].unique()
-    colors = px.colors.qualitative.Plotly[:len(unique_points)]
+    print(f"Creating box plot analysis for {len(unique_points)} settlement points")
     
-    # Add box plots for raw DART (left plot)
-    for i, point in enumerate(unique_points):
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
         point_data = df[df["point_identifier"] == point]
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_data)} data points")
+        
+        # Create subplot with 1 row, 2 columns (side by side)
+        fig = make_subplots(
+            rows=1, cols=2,
+            shared_yaxes=False,
+            horizontal_spacing=0.15,
+            subplot_titles=[
+                f"Raw DART Box Plot - {point}{title_suffix}",
+                f"Signed Log Transformed DART Box Plot - {point}{title_suffix}"
+            ]
+        )
+        
+        # Add box plot for raw DART (left plot)
         fig.add_trace(
             go.Box(
                 y=point_data["dart"],
-                name=point,
-                marker_color=colors[i % len(colors)],
+                name="Raw DART",
+                marker_color="blue",
                 boxpoints="outliers",
-                showlegend=False
+                showlegend=True
             ),
             row=1, col=1
         )
-    
-    # Add box plots for transformed DART (right plot)  
-    for i, point in enumerate(unique_points):
-        point_data = df[df["point_identifier"] == point]
+        
+        # Add box plot for transformed DART (right plot)  
         fig.add_trace(
             go.Box(
                 y=point_data["dart_slt"],
-                name=point,
-                marker_color=colors[i % len(colors)],
+                name="SLT DART",
+                marker_color="red",
                 boxpoints="outliers",
-                showlegend=True,
-                legendgroup=point
+                showlegend=True
             ),
             row=1, col=2
         )
-    
-    # Update layout
-    fig.update_layout(
-        title=f"DART Box Plot Analysis{title_suffix}",
-        height=600,
-        showlegend=True,
-        legend_title="Settlement Point (Type)"
-    )
-    
-    # Update axis labels
-    fig.update_yaxes(title_text="DART ($/MWh)", row=1, col=1)
-    fig.update_yaxes(title_text="Signed Log DART", row=1, col=2)
-    fig.update_xaxes(title_text="Settlement Points", row=1, col=1)
-    fig.update_xaxes(title_text="Settlement Points", row=1, col=2)
-    
-    # Rotate x-axis labels for better readability
-    fig.update_xaxes(tickangle=45)
-    
-    # Save plot
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_boxplots.html"
-    fig.write_html(output_path)
-    print(f"DART box plot saved to: {output_path}")
-    
-    # Save box plot statistics
-    box_stats = []
-    for point in unique_points:
-        point_data = df[df["point_identifier"] == point]
+        
+        # Update layout
+        fig.update_layout(
+            title=f"DART Box Plot Analysis - {point}{title_suffix}",
+            height=600,
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="DART ($/MWh)", row=1, col=1)
+        fig.update_yaxes(title_text="Signed Log DART", row=1, col=2)
+        fig.update_xaxes(title_text="Data Type", row=1, col=1)
+        fig.update_xaxes(title_text="Data Type", row=1, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_boxplots_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual box plot statistics
         raw_stats = point_data["dart"].describe()
         slt_stats = point_data["dart_slt"].describe()
         
-        box_stats.append({
-            "point_identifier": point,
-            "raw_q1": raw_stats["25%"],
-            "raw_median": raw_stats["50%"], 
-            "raw_q3": raw_stats["75%"],
-            "raw_iqr": raw_stats["75%"] - raw_stats["25%"],
-            "slt_q1": slt_stats["25%"],
-            "slt_median": slt_stats["50%"],
-            "slt_q3": slt_stats["75%"],
-            "slt_iqr": slt_stats["75%"] - slt_stats["25%"]
-        })
+        box_stats = [{
+            "Settlement_Point": point,
+            "Data_Type": "Raw DART",
+            "Count": raw_stats["count"],
+            "Mean": raw_stats["mean"],
+            "Std": raw_stats["std"],
+            "Min": raw_stats["min"],
+            "Q1": raw_stats["25%"],
+            "Median": raw_stats["50%"], 
+            "Q3": raw_stats["75%"],
+            "Max": raw_stats["max"],
+            "IQR": raw_stats["75%"] - raw_stats["25%"]
+        }, {
+            "Settlement_Point": point,
+            "Data_Type": "SLT DART",
+            "Count": slt_stats["count"],
+            "Mean": slt_stats["mean"],
+            "Std": slt_stats["std"],
+            "Min": slt_stats["min"],
+            "Q1": slt_stats["25%"],
+            "Median": slt_stats["50%"],
+            "Q3": slt_stats["75%"],
+            "Max": slt_stats["max"],
+            "IQR": slt_stats["75%"] - slt_stats["25%"]
+        }]
+        
+        box_stats_df = pd.DataFrame(box_stats)
+        stats_path = output_dir / f"dart_boxplot_stats_{safe_filename}.csv"
+        box_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
     
-    box_stats_df = pd.DataFrame(box_stats)
-    stats_path = output_dir / "dart_boxplot_stats.csv"
-    box_stats_df.to_csv(stats_path, index=False)
-    print(f"DART box plot statistics saved to: {stats_path}")
+    print(f"Box plot analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_qqplots(
@@ -394,132 +530,148 @@ def plot_dart_qqplots(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create Q-Q plots for normality assessment of DART distributions.
+    """Create Q-Q plots for normality assessment of DART distributions for each settlement point.
     
-    Creates a subplot with:
-    - Upper plot: Raw DART Q-Q plot against normal distribution
-    - Lower plot: Signed log transformed DART Q-Q plot against normal distribution
+    Creates separate plots for each settlement point with:
+    - Left plot: Raw DART Q-Q plot against normal distribution
+    - Right plot: Signed log transformed DART Q-Q plot against normal distribution
     
     Q-Q plots help assess how closely the data follows a normal distribution.
     Points that fall along the diagonal line indicate normal distribution.
     
     Args:
-        df: DataFrame containing DART data with 'dart' column
+        df: DataFrame containing DART data with 'dart' column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
     
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Remove NaN values for statistics
-    dart_clean = df["dart"].dropna()
-    dart_slt_clean = df["dart_slt"].dropna()
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating Q-Q plot analysis for {len(unique_points)} settlement points")
     
-    # Create subplot with 1 row, 2 columns (side by side)
-    fig = make_subplots(
-        rows=1, cols=2,
-        shared_xaxes=False,
-        horizontal_spacing=0.15,
-        subplot_titles=[
-            f"Raw DART Q-Q Plot{title_suffix}",
-            f"Signed Log Transformed DART Q-Q Plot{title_suffix}"
-        ]
-    )
-    
-    # Plot Q-Q plots for both datasets
-    datasets = [
-        (dart_clean, "Raw DART", 1),
-        (dart_slt_clean, "SLT DART", 2)
-    ]
-    
-    for data, name, col in datasets:
-        # Generate Q-Q plot data using scipy
-        (osm, osr), (slope, intercept, r) = stats.probplot(data, dist="norm", plot=None)
-        
-        # Add scatter plot of actual Q-Q points
-        fig.add_trace(
-            go.Scatter(
-                x=osm,
-                y=osr,
-                mode="markers",
-                name=f"{name} Data Points",
-                marker=dict(color="blue", size=4, opacity=0.6),
-                showlegend=True
-            ),
-            row=1, col=col
-        )
-        
-        # Add theoretical normal line (perfect fit)
-        line_x = np.array([osm.min(), osm.max()])
-        line_y = slope * line_x + intercept
-        
-        fig.add_trace(
-            go.Scatter(
-                x=line_x,
-                y=line_y,
-                mode="lines",
-                name=f"{name} Normal Line (R²={r**2:.3f})",
-                line=dict(color="red", width=2),
-                showlegend=True
-            ),
-            row=1, col=col
-        )
-        
-        # Add reference diagonal line (y=x) for perfect normality
-        data_range = [min(osm.min(), osr.min()), max(osm.max(), osr.max())]
-        fig.add_trace(
-            go.Scatter(
-                x=data_range,
-                y=data_range,
-                mode="lines",
-                name=f"{name} Perfect Normal (y=x)",
-                line=dict(color="gray", width=1, dash="dash"),
-                showlegend=True,
-                opacity=0.5
-            ),
-            row=1, col=col
-        )
-    
-    # Update layout
-    fig.update_layout(
-        title=f"DART Q-Q Plot Analysis{title_suffix}",
-        height=800,
-        showlegend=True
-    )
-    
-    # Update axis labels
-    fig.update_yaxes(title_text="Sample Quantiles", row=1, col=1)
-    fig.update_yaxes(title_text="Sample Quantiles", row=1, col=2)
-    fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=1)
-    fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=2)
-    
-    # Save plot
+    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_qqplots.html"
-    fig.write_html(output_path)
-    print(f"DART Q-Q plot saved to: {output_path}")
     
-    # Save Q-Q statistics summary
-    qq_stats = []
-    for data, name in [(dart_clean, "Raw_DART"), (dart_slt_clean, "SLT_DART")]:
-        (osm, osr), (slope, intercept, r) = stats.probplot(data, dist="norm", plot=None)
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
         
-        qq_stats.append({
-            "Dataset": name,
-            "R_squared": r**2,
-            "Slope": slope,
-            "Intercept": intercept,
-            "Correlation": r
-        })
+        # Remove NaN values for statistics
+        dart_clean = point_data["dart"].dropna()
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        
+        if len(dart_clean) < 10 or len(dart_slt_clean) < 10:
+            print(f"Warning: Insufficient data for {point}, skipping")
+            continue
+            
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(dart_clean)} raw, {len(dart_slt_clean)} transformed data points")
+        
+        # Create subplot with 1 row, 2 columns (side by side)
+        fig = make_subplots(
+            rows=1, cols=2,
+            shared_xaxes=False,
+            horizontal_spacing=0.15,
+            subplot_titles=[
+                f"Raw DART Q-Q Plot - {point}{title_suffix}",
+                f"Signed Log Transformed DART Q-Q Plot - {point}{title_suffix}"
+            ]
+        )
+        
+        # Store statistics for this settlement point
+        qq_stats = []
+        
+        # Plot Q-Q plots for both datasets
+        datasets = [
+            (dart_clean, "Raw DART", 1),
+            (dart_slt_clean, "SLT DART", 2)
+        ]
+        
+        for data, data_type, col in datasets:
+            # Generate Q-Q plot data using scipy
+            (osm, osr), (slope, intercept, r) = stats.probplot(data, dist="norm", plot=None)
+            
+            # Add scatter plot of actual Q-Q points
+            fig.add_trace(
+                go.Scatter(
+                    x=osm,
+                    y=osr,
+                    mode="markers",
+                    name=f"{data_type} Data",
+                    marker=dict(color="blue" if col == 1 else "red", size=4, opacity=0.6),
+                    showlegend=True
+                ),
+                row=1, col=col
+            )
+            
+            # Add theoretical normal line (perfect fit)
+            line_x = np.array([osm.min(), osm.max()])
+            line_y = slope * line_x + intercept
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=line_x,
+                    y=line_y,
+                    mode="lines",
+                    name=f"{data_type} Normal Line (R²={r**2:.3f})",
+                    line=dict(color="darkblue" if col == 1 else "darkred", width=2),
+                    showlegend=True
+                ),
+                row=1, col=col
+            )
+            
+            # Store statistics
+            qq_stats.append({
+                "Settlement_Point": point,
+                "Data_Type": data_type,
+                "Count": len(data),
+                "R_squared": r**2,
+                "Slope": slope,
+                "Intercept": intercept,
+                "Correlation": r
+            })
+        
+        # Update layout
+        fig.update_layout(
+            title=f"DART Q-Q Plot Analysis - {point}{title_suffix}",
+            height=600,
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="Sample Quantiles", row=1, col=1)
+        fig.update_yaxes(title_text="Sample Quantiles", row=1, col=2)
+        fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=1)
+        fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_qqplots_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual Q-Q statistics
+        if qq_stats:
+            qq_stats_df = pd.DataFrame(qq_stats)
+            stats_path = output_dir / f"dart_qqplot_stats_{safe_filename}.csv"
+            qq_stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
     
-    qq_stats_df = pd.DataFrame(qq_stats)
-    stats_path = output_dir / "dart_qqplot_stats.csv"
-    qq_stats_df.to_csv(stats_path, index=False)
-    print(f"DART Q-Q plot statistics saved to: {stats_path}")
+    print(f"Q-Q plot analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_slt_bimodal(
@@ -527,159 +679,173 @@ def plot_dart_slt_bimodal(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create bimodal analysis of signed log transformed DART distributions.
+    """Create bimodal analysis of signed log transformed DART distributions for each settlement point.
     
-    Creates a subplot with:
-    - Left plot: Negative dart_slt values with histogram, normal fit, and percentiles
-    - Right plot: Positive dart_slt values with histogram, normal fit, and percentiles
+    Creates separate bimodal analysis for each settlement point, with plots showing:
+    - Left subplot: Negative dart_slt values with histogram, normal fit, and percentiles
+    - Right subplot: Positive dart_slt values with histogram, normal fit, and percentiles
     
-    This helps analyze whether each mode of the bimodal distribution is independently normal.
+    This helps analyze whether each mode of the bimodal distribution is independently normal
+    for each settlement point.
     
     Args:
-        df: DataFrame containing dart_slt column
+        df: DataFrame containing dart_slt column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
     
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Separate positive and negative values (excluding zeros for cleaner analysis)
-    dart_slt_clean = df["dart_slt"].dropna()
-    negative_values = dart_slt_clean[dart_slt_clean < 0]
-    positive_values = dart_slt_clean[dart_slt_clean > 0]
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating bimodal analysis for {len(unique_points)} settlement points")
     
-    # Take absolute values of negative values for proper percentile interpretation
-    negative_values_abs = negative_values.abs()
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"Bimodal analysis: {len(negative_values)} negative values, {len(positive_values)} positive values")
-    
-    # Create subplot with 1 row, 2 columns (side by side)
-    fig = make_subplots(
-        rows=1, cols=2,
-        shared_xaxes=False,
-        horizontal_spacing=0.20,  # Increased spacing between subplots
-        subplot_titles=[
-            f"Negative DART_SLT Distribution (Absolute Values){title_suffix}",
-            f"Positive DART_SLT Distribution{title_suffix}"
-        ]
-    )
-    
-    # Plot histograms and overlays for both datasets
-    datasets = [
-        (negative_values_abs, "Negative DART_SLT (Abs)", 1),
-        (positive_values, "Positive DART_SLT", 2)
-    ]
-    
-    bimodal_stats = []
-    
-    for data, name, col in datasets:
-        if len(data) < 10:  # Skip if insufficient data
-            print(f"Warning: Insufficient data for {name} ({len(data)} points)")
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
+        
+        # Separate positive and negative values
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        negative_values = dart_slt_clean[dart_slt_clean < 0]
+        positive_values = dart_slt_clean[dart_slt_clean > 0]
+        
+        # Take absolute values of negative values for proper percentile interpretation
+        negative_values_abs = negative_values.abs()
+        
+        if len(negative_values) < 5 and len(positive_values) < 5:
+            print(f"Warning: Insufficient data for {point}, skipping")
             continue
             
-        # Calculate percentiles
-        percentiles = {
-            "67th": np.percentile(data, 67),
-            "90th": np.percentile(data, 90), 
-            "95th": np.percentile(data, 95),
-            "99th": np.percentile(data, 99)
-        }
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
-        # Fit normal distribution
-        mu, std = stats.norm.fit(data)
+        print(f"Processing {point}: {len(negative_values)} negative, {len(positive_values)} positive values")
         
-        # Create histogram
-        fig.add_trace(
-            go.Histogram(
-                x=data,
-                name=f"{name} Histogram",
-                nbinsx=30,  # Fewer bins since we have fewer data points
-                histnorm="probability density",
-                opacity=0.7,
-                marker_color="lightblue" if "Negative" in name else "lightcoral",
-                showlegend=True
-            ),
-            row=1, col=col
+        # Create subplot with 1 row, 2 columns
+        fig = make_subplots(
+            rows=1, cols=2,
+            shared_xaxes=False,
+            horizontal_spacing=0.15,
+            subplot_titles=[
+                f"Negative DART_SLT (Absolute Values) - {point}",
+                f"Positive DART_SLT - {point}"
+            ]
         )
         
-        # Create fitted normal distribution overlay
-        x_range = np.linspace(data.min(), data.max(), 100)
-        normal_curve = stats.norm.pdf(x_range, mu, std)
+        # Store statistics for this settlement point
+        bimodal_stats = []
         
-        fig.add_trace(
-            go.Scatter(
-                x=x_range,
-                y=normal_curve,
-                mode="lines",
-                name=f"{name} Normal Fit (μ={mu:.3f}, σ={std:.3f})",
-                line=dict(color="red", width=2),
-                showlegend=True
-            ),
-            row=1, col=col
-        )
+        # Plot histograms and overlays for both datasets
+        datasets = [
+            (negative_values_abs, "Negative DART_SLT (Abs)", 1),
+            (positive_values, "Positive DART_SLT", 2)
+        ]
         
-        # Add percentile lines
-        colors = ["orange", "purple", "green", "darkred"]
-        positions = ["bottom right", "top right", "bottom left", "top left"]  # Stagger positions
-        angles = [45, -45, 45, -45]  # Alternate angling for better spacing
-        for i, (pct_name, pct_value) in enumerate(percentiles.items()):
-            fig.add_vline(
-                x=pct_value,
-                line_dash="dash",
-                line_color=colors[i],
-                line_width=2,
-                annotation_text=pct_name,  # Just the percentile name, not the value
-                annotation_position=positions[i],
-                annotation_font_size=10,  # Smaller font size
-                annotation_textangle=angles[i],  # Angle the text
+        for data, name, col in datasets:
+            if len(data) < 5:  # Skip if insufficient data
+                print(f"Warning: Insufficient data for {point} {name} ({len(data)} points)")
+                continue
+                
+            # Fit normal distribution
+            mu, std = stats.norm.fit(data)
+            
+            # Create histogram
+            fig.add_trace(
+                go.Histogram(
+                    x=data,
+                    name=f"{name}",
+                    nbinsx=80,  # Increased from 20 to 80 for finer resolution (1/4 current resolution)
+                    histnorm="probability density",
+                    opacity=0.7,
+                    marker_color="blue" if col == 1 else "red",
+                    showlegend=True
+                ),
                 row=1, col=col
             )
+            
+            # Create fitted normal distribution overlay
+            x_range = np.linspace(data.min(), data.max(), 100)
+            normal_curve = stats.norm.pdf(x_range, mu, std)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=x_range,
+                    y=normal_curve,
+                    mode="lines",
+                    name=f"{name} Normal Fit",
+                    line=dict(color="darkblue" if col == 1 else "darkred", width=2, dash="dash"),
+                    showlegend=True
+                ),
+                row=1, col=col
+            )
+            
+            # Calculate percentiles for statistics
+            percentiles = {
+                "67th": np.percentile(data, 67),
+                "90th": np.percentile(data, 90), 
+                "95th": np.percentile(data, 95),
+                "99th": np.percentile(data, 99)
+            }
+            
+            # Store statistics for CSV output
+            bimodal_stats.append({
+                "Settlement_Point": point,
+                "Distribution": name,
+                "Count": len(data),
+                "Mean": mu,
+                "Std": std,
+                "67th_Percentile": percentiles["67th"],
+                "90th_Percentile": percentiles["90th"],
+                "95th_Percentile": percentiles["95th"],
+                "99th_Percentile": percentiles["99th"],
+                "Min": data.min(),
+                "Max": data.max()
+            })
         
-        # Store statistics for CSV output
-        bimodal_stats.append({
-            "Distribution": name,
-            "Count": len(data),
-            "Mean": mu,
-            "Std": std,
-            "67th_Percentile": percentiles["67th"],
-            "90th_Percentile": percentiles["90th"],
-            "95th_Percentile": percentiles["95th"],
-            "99th_Percentile": percentiles["99th"],
-            "Min": data.min(),
-            "Max": data.max()
-        })
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Bimodal Analysis - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            height=600,
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="Frequency", row=1, col=1)
+        fig.update_yaxes(title_text="Frequency", row=1, col=2)
+        fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=1)
+        fig.update_xaxes(title_text="Signed-Log DART", row=1, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_bimodal_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual bimodal statistics
+        if bimodal_stats:
+            bimodal_stats_df = pd.DataFrame(bimodal_stats)
+            stats_path = output_dir / f"dart_slt_bimodal_stats_{safe_filename}.csv"
+            bimodal_stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
     
-    # Update layout
-    fig.update_layout(
-        title={
-            "text": f"DART Signed-Log Transform Bimodal Analysis{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
-            "x": 0.5,
-            "xanchor": "center"
-        },
-        height=800,  # Increased height to accommodate annotations
-        showlegend=False,
-        yaxis_title="Frequency",
-        yaxis2_title="Frequency",
-        xaxis_title="Signed-Log Transformed DART (Absolute Value)",
-        xaxis2_title="Signed-Log Transformed DART"
-    )
-    
-    # Save plot
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_slt_bimodal.html"
-    fig.write_html(output_path)
-    print(f"DART_SLT bimodal plot saved to: {output_path}")
-    
-    # Save bimodal statistics
-    if bimodal_stats:
-        bimodal_stats_df = pd.DataFrame(bimodal_stats)
-        stats_path = output_dir / "dart_slt_bimodal_stats.csv"
-        bimodal_stats_df.to_csv(stats_path, index=False)
-        print(f"DART_SLT bimodal statistics saved to: {stats_path}")
+    print(f"Bimodal analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_slt_cumulative(
@@ -687,143 +853,175 @@ def plot_dart_slt_cumulative(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create cumulative analysis of signed log transformed DART distributions.
+    """Create cumulative analysis of signed log transformed DART distributions for each settlement point.
     
-    Creates a subplot with:
-    - Left plot: Cumulative count of positive and negative dart_slt values
-    - Right plot: Cumulative distribution (CDF) of positive and negative dart_slt values
+    Creates separate cumulative analysis for each settlement point, with plots showing:
+    - Upper left: Negative DART_SLT cumulative count (absolute values)
+    - Upper right: Negative DART_SLT cumulative distribution (absolute values)
+    - Lower left: Positive DART_SLT cumulative count
+    - Lower right: Positive DART_SLT cumulative distribution
     
-    This helps understand the accumulation patterns and relative frequencies of positive vs negative price differences.
+    This helps understand the accumulation patterns and relative frequencies of positive vs negative 
+    price differences at each settlement point.
     
     Args:
-        df: DataFrame containing dart_slt column
+        df: DataFrame containing dart_slt column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
     
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
+    
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
         raise ValueError("dart_slt column not found. Ensure dataset.py creates this column.")
     
-    # Separate positive and negative values (excluding zeros for cleaner analysis)
-    dart_slt_clean = df["dart_slt"].dropna()
-    negative_values = dart_slt_clean[dart_slt_clean < 0]
-    positive_values = dart_slt_clean[dart_slt_clean > 0]
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating cumulative analysis for {len(unique_points)} settlement points")
     
-    # Take absolute values of negative values for proper percentile interpretation
-    negative_values_abs = negative_values.abs()
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"Cumulative analysis: {len(negative_values)} negative values, {len(positive_values)} positive values")
-    
-    # Create subplot with 2 rows, 2 columns (2x2 grid)
-    fig = make_subplots(
-        rows=2, cols=2,
-        shared_xaxes=False,
-        horizontal_spacing=0.15,
-        vertical_spacing=0.15,
-        subplot_titles=[
-            f"Negative DART_SLT Cumulative Count (Absolute Values){title_suffix}",
-            f"Negative DART_SLT Cumulative Distribution (Absolute Values){title_suffix}",
-            f"Positive DART_SLT Cumulative Count{title_suffix}",
-            f"Positive DART_SLT Cumulative Distribution{title_suffix}"
-        ]
-    )
-    
-    # Process both datasets
-    datasets = [
-        (negative_values_abs, "Negative DART_SLT (Abs)", "blue", 1),  # Row 1 for negative
-        (positive_values, "Positive DART_SLT", "red", 2)              # Row 2 for positive
-    ]
-    
-    cumulative_stats = []
-    
-    for data, name, color, row in datasets:
-        if len(data) < 10:  # Skip if insufficient data
-            print(f"Warning: Insufficient data for {name} ({len(data)} points)")
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
+        
+        # Separate positive and negative values (excluding zeros for cleaner analysis)
+        dart_slt_clean = point_data["dart_slt"].dropna()
+        negative_values = dart_slt_clean[dart_slt_clean < 0]
+        positive_values = dart_slt_clean[dart_slt_clean > 0]
+        
+        # Take absolute values of negative values for proper percentile interpretation
+        negative_values_abs = negative_values.abs()
+        
+        if len(negative_values) < 5 and len(positive_values) < 5:
+            print(f"Warning: Insufficient data for {point}, skipping")
             continue
             
-        # Sort data for cumulative analysis
-        data_sorted = data.sort_values()
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
         
-        # Calculate cumulative statistics
-        cumulative_count = np.arange(1, len(data_sorted) + 1)
-        cumulative_prob = cumulative_count / len(data_sorted)
+        print(f"Processing {point}: {len(negative_values)} negative values, {len(positive_values)} positive values")
         
-        # Add cumulative count trace (left column)
-        fig.add_trace(
-            go.Scatter(
-                x=data_sorted,
-                y=cumulative_count,
-                mode="lines",
-                name=f"{name} Count",
-                line=dict(color=color, width=2),
-                showlegend=True
-            ),
-            row=row, col=1
+        # Create subplot with 2 rows, 2 columns (2x2 grid)
+        fig = make_subplots(
+            rows=2, cols=2,
+            shared_xaxes=False,
+            horizontal_spacing=0.15,
+            vertical_spacing=0.15,
+            subplot_titles=[
+                f"Negative DART_SLT Cumulative Count (Abs) - {point}",
+                f"Negative DART_SLT Cumulative Distribution (Abs) - {point}",
+                f"Positive DART_SLT Cumulative Count - {point}",
+                f"Positive DART_SLT Cumulative Distribution - {point}"
+            ]
         )
         
-        # Add cumulative probability trace (right column)
-        fig.add_trace(
-            go.Scatter(
-                x=data_sorted,
-                y=cumulative_prob,
-                mode="lines",
-                name=f"{name} Distribution",
-                line=dict(color=color, width=2),
-                showlegend=True
-            ),
-            row=row, col=2
+        # Store statistics for this settlement point
+        cumulative_stats = []
+        
+        # Process both datasets for this settlement point
+        datasets = [
+            (negative_values_abs, "Negative DART_SLT (Abs)", "blue", 1),  # Row 1 for negative
+            (positive_values, "Positive DART_SLT", "red", 2)              # Row 2 for positive
+        ]
+        
+        for data, name, color, row in datasets:
+            if len(data) < 5:  # Skip if insufficient data
+                print(f"Warning: Insufficient data for {point} {name} ({len(data)} points)")
+                continue
+                
+            # Sort data for cumulative analysis
+            data_sorted = data.sort_values()
+            
+            # Calculate cumulative statistics
+            cumulative_count = np.arange(1, len(data_sorted) + 1)
+            cumulative_prob = cumulative_count / len(data_sorted)
+            
+            # Add cumulative count trace (left column)
+            fig.add_trace(
+                go.Scatter(
+                    x=data_sorted,
+                    y=cumulative_count,
+                    mode="lines",
+                    name=f"{name} Count",
+                    line=dict(color=color, width=2),
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+            
+            # Add cumulative probability trace (right column)
+            fig.add_trace(
+                go.Scatter(
+                    x=data_sorted,
+                    y=cumulative_prob,
+                    mode="lines",
+                    name=f"{name} Distribution",
+                    line=dict(color=color, width=2, dash="dash"),
+                    showlegend=True
+                ),
+                row=row, col=2
+            )
+            
+            # Store statistics for CSV output
+            cumulative_stats.append({
+                "Settlement_Point": point,
+                "Distribution": name,
+                "Count": len(data),
+                "Proportion": len(data) / len(dart_slt_clean),
+                "Min_Value": data.min(),
+                "Max_Value": data.max(),
+                "Median": data.median(),
+                "25th_Percentile": np.percentile(data, 25),
+                "75th_Percentile": np.percentile(data, 75)
+            })
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Cumulative Analysis - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            height=800,  # Increased height to accommodate 2x2 grid
+            showlegend=True
         )
         
-        # Store statistics for CSV output
-        cumulative_stats.append({
-            "Distribution": name,
-            "Count": len(data),
-            "Proportion": len(data) / len(dart_slt_clean),
-            "Min_Value": data.min(),
-            "Max_Value": data.max(),
-            "Median": data.median(),
-            "25th_Percentile": np.percentile(data, 25),
-            "75th_Percentile": np.percentile(data, 75)
-        })
+        # Update axis labels for all subplots
+        # Row 1 (Negative values)
+        fig.update_yaxes(title_text="Cumulative Count", row=1, col=1)
+        fig.update_yaxes(title_text="Cumulative Probability", row=1, col=2)
+        fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=1)
+        fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=2)
+        
+        # Row 2 (Positive values)  
+        fig.update_yaxes(title_text="Cumulative Count", row=2, col=1)
+        fig.update_yaxes(title_text="Cumulative Probability", row=2, col=2)
+        fig.update_xaxes(title_text="Signed-Log DART", row=2, col=1)
+        fig.update_xaxes(title_text="Signed-Log DART", row=2, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_cumulative_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual cumulative statistics
+        if cumulative_stats:
+            cumulative_stats_df = pd.DataFrame(cumulative_stats)
+            stats_path = output_dir / f"dart_slt_cumulative_stats_{safe_filename}.csv"
+            cumulative_stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
     
-    # Update layout
-    fig.update_layout(
-        title={
-            "text": f"DART Signed-Log Transform Cumulative Analysis{title_suffix}<br><sub>Note: Negative values shown as absolute values for clearer percentile interpretation</sub>",
-            "x": 0.5,
-            "xanchor": "center"
-        },
-        height=800,  # Increased height to accommodate 2x2 grid
-        showlegend=True
-    )
-    
-    # Update axis labels for all subplots
-    # Row 1 (Negative values)
-    fig.update_yaxes(title_text="Cumulative Count", row=1, col=1)
-    fig.update_yaxes(title_text="Cumulative Probability", row=1, col=2)
-    fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=1)
-    fig.update_xaxes(title_text="Signed-Log DART (Absolute Value)", row=1, col=2)
-    
-    # Row 2 (Positive values)  
-    fig.update_yaxes(title_text="Cumulative Count", row=2, col=1)
-    fig.update_yaxes(title_text="Cumulative Probability", row=2, col=2)
-    fig.update_xaxes(title_text="Signed-Log DART", row=2, col=1)
-    fig.update_xaxes(title_text="Signed-Log DART", row=2, col=2)
-    
-    # Save plot
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_slt_cumulative.html"
-    fig.write_html(output_path)
-    print(f"DART_SLT cumulative plot saved to: {output_path}")
-    
-    # Save cumulative statistics
-    cumulative_stats_df = pd.DataFrame(cumulative_stats)
-    stats_path = output_dir / "dart_slt_cumulative_stats.csv"
-    cumulative_stats_df.to_csv(stats_path, index=False)
-    print(f"DART_SLT cumulative statistics saved to: {stats_path}")
+    print(f"Cumulative analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_slt_by_weekday(
@@ -831,22 +1029,30 @@ def plot_dart_slt_by_weekday(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create day-of-week analysis of signed log transformed DART distributions.
+    """Create day-of-week analysis of signed log transformed DART distributions for each settlement point.
     
-    Creates a bar plot showing:
+    Creates separate weekday analysis for each settlement point, with bar plots showing:
     - Average and standard deviation of positive dart_slt values by day of week
-    - Average and standard deviation of negative dart_slt values (absolute values) by day of week
+    - Average and standard deviation of negative dart_slt values (absolute values) by day of week  
     - Error bars representing standard deviation
     
-    This helps identify systematic patterns in price differences across weekdays vs weekends.
+    This helps identify systematic patterns in price differences across weekdays vs weekends
+    at each settlement point.
     
     Args:
-        df: DataFrame containing dart_slt column and timestamp column
+        df: DataFrame containing dart_slt column, day_of_week column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
+    
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
     
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
@@ -855,6 +1061,10 @@ def plot_dart_slt_by_weekday(
     # Ensure we have the day_of_week column (should be provided by dataset)
     if "day_of_week" not in df.columns:
         raise ValueError("day_of_week column not found. Ensure dataset.py creates this column.")
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating weekday analysis for {len(unique_points)} settlement points")
     
     # Map day_of_week numbers to day names
     day_mapping = {
@@ -872,118 +1082,125 @@ def plot_dart_slt_by_weekday(
     # Define day order for proper plotting
     day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     
-    # Separate positive and negative values
-    dart_slt_clean = df.dropna(subset=["dart_slt", "weekday"])
-    positive_data = dart_slt_clean[dart_slt_clean["dart_slt"] > 0].copy()
-    negative_data = dart_slt_clean[dart_slt_clean["dart_slt"] < 0].copy()
-    
-    # Take absolute values of negative data for proper interpretation
-    negative_data["dart_slt_abs"] = negative_data["dart_slt"].abs()
-    
-    print(f"Weekday analysis: {len(positive_data)} positive values, {len(negative_data)} negative values")
-    
-    # Calculate statistics by weekday for both datasets
-    positive_stats = positive_data.groupby("weekday")["dart_slt"].agg(["mean", "std", "count"]).reset_index()
-    negative_stats = negative_data.groupby("weekday")["dart_slt_abs"].agg(["mean", "std", "count"]).reset_index()
-    
-    # Ensure all days are present (fill missing with NaN)
-    positive_stats = positive_stats.set_index("weekday").reindex(day_order).reset_index()
-    negative_stats = negative_stats.set_index("weekday").reindex(day_order).reset_index()
-    
-    # Create the plot
-    fig = go.Figure()
-    
-    # Add positive DART_SLT bars
-    fig.add_trace(
-        go.Bar(
-            x=positive_stats["weekday"],
-            y=positive_stats["mean"],
-            error_y=dict(
-                type="data",
-                array=positive_stats["std"],
-                visible=True,
-                color="darkblue"
-            ),
-            name="Positive DART_SLT",
-            marker_color="lightblue",
-            opacity=0.8,
-            offsetgroup=1
-        )
-    )
-    
-    # Add negative DART_SLT bars (absolute values)
-    fig.add_trace(
-        go.Bar(
-            x=negative_stats["weekday"],
-            y=negative_stats["mean"],
-            error_y=dict(
-                type="data",
-                array=negative_stats["std"],
-                visible=True,
-                color="darkred"
-            ),
-            name="Negative DART_SLT (Absolute Values)",
-            marker_color="lightcoral",
-            opacity=0.8,
-            offsetgroup=2
-        )
-    )
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            "text": f"DART Signed-Log Transform by Delivery Day{title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
-            "x": 0.5,
-            "xanchor": "center"
-        },
-        xaxis_title="Delivery Day",
-        yaxis_title="Mean Signed-Log Transformed DART",
-        height=600,
-        showlegend=True,
-        barmode="group",  # Group bars side by side
-        bargap=0.2,      # Gap between groups
-        bargroupgap=0.1  # Gap between bars in a group
-    )
-    
-    # Ensure days are in correct order
-    fig.update_xaxes(categoryorder="array", categoryarray=day_order)
-    
-    # Save plot
+    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_slt_by_weekday.html"
-    fig.write_html(output_path)
-    print(f"DART_SLT weekday plot saved to: {output_path}")
     
-    # Prepare comprehensive statistics for CSV output
-    weekday_stats = []
-    
-    for day in day_order:
-        pos_row = positive_stats[positive_stats["weekday"] == day]
-        neg_row = negative_stats[negative_stats["weekday"] == day]
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
         
-        weekday_stats.append({
-            "weekday": day,
-            "positive_mean": pos_row["mean"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["mean"].iloc[0]) else None,
-            "positive_std": pos_row["std"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["std"].iloc[0]) else None,
-            "positive_count": pos_row["count"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["count"].iloc[0]) else 0,
-            "negative_mean_abs": neg_row["mean"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["mean"].iloc[0]) else None,
-            "negative_std_abs": neg_row["std"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["std"].iloc[0]) else None,
-            "negative_count": neg_row["count"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["count"].iloc[0]) else 0
-        })
+        # Separate positive and negative values
+        dart_slt_clean = point_data.dropna(subset=["dart_slt", "weekday"])
+        positive_data = dart_slt_clean[dart_slt_clean["dart_slt"] > 0].copy()
+        negative_data = dart_slt_clean[dart_slt_clean["dart_slt"] < 0].copy()
+        
+        # Take absolute values of negative data for proper interpretation
+        negative_data["dart_slt_abs"] = negative_data["dart_slt"].abs()
+        
+        if len(positive_data) < 5 and len(negative_data) < 5:
+            print(f"Warning: Insufficient data for {point}, skipping")
+            continue
+            
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
+        
+        # Calculate statistics by weekday for both datasets
+        positive_stats = positive_data.groupby("weekday")["dart_slt"].agg(["mean", "std", "count"]).reset_index()
+        negative_stats = negative_data.groupby("weekday")["dart_slt_abs"].agg(["mean", "std", "count"]).reset_index()
+        
+        # Ensure all days are present (fill missing with NaN)
+        positive_stats = positive_stats.set_index("weekday").reindex(day_order).reset_index()
+        negative_stats = negative_stats.set_index("weekday").reindex(day_order).reset_index()
+        
+        # Create the plot
+        fig = go.Figure()
+        
+        # Add positive DART_SLT bars
+        fig.add_trace(
+            go.Bar(
+                x=positive_stats["weekday"],
+                y=positive_stats["mean"],
+                error_y=dict(
+                    type="data",
+                    array=positive_stats["std"],
+                    visible=True,
+                    color="darkblue"
+                ),
+                name="Positive DART_SLT",
+                marker_color="lightblue",
+                opacity=0.8,
+                offsetgroup=1
+            )
+        )
+        
+        # Add negative DART_SLT bars (absolute values)
+        fig.add_trace(
+            go.Bar(
+                x=negative_stats["weekday"],
+                y=negative_stats["mean"],
+                error_y=dict(
+                    type="data",
+                    array=negative_stats["std"],
+                    visible=True,
+                    color="darkred"
+                ),
+                name="Negative DART_SLT (Absolute Values)",
+                marker_color="lightcoral",
+                opacity=0.8,
+                offsetgroup=2
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform by Delivery Day - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Delivery Day",
+            yaxis_title="Mean Signed-Log Transformed DART",
+            height=600,
+            showlegend=True,
+            barmode="group",  # Group bars side by side
+            bargap=0.2,      # Gap between groups
+            bargroupgap=0.1  # Gap between bars in a group
+        )
+        
+        # Ensure days are in correct order
+        fig.update_xaxes(categoryorder="array", categoryarray=day_order)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_by_weekday_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Store comprehensive statistics for CSV output
+        weekday_stats = []
+        for day in day_order:
+            pos_row = positive_stats[positive_stats["weekday"] == day]
+            neg_row = negative_stats[negative_stats["weekday"] == day]
+            
+            weekday_stats.append({
+                "Settlement_Point": point,
+                "weekday": day,
+                "positive_mean": pos_row["mean"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["mean"].iloc[0]) else None,
+                "positive_std": pos_row["std"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["std"].iloc[0]) else None,
+                "positive_count": pos_row["count"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["count"].iloc[0]) else 0,
+                "negative_mean_abs": neg_row["mean"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["mean"].iloc[0]) else None,
+                "negative_std_abs": neg_row["std"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["std"].iloc[0]) else None,
+                "negative_count": neg_row["count"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["count"].iloc[0]) else 0
+            })
+        
+        # Save individual weekday statistics
+        weekday_stats_df = pd.DataFrame(weekday_stats)
+        stats_path = output_dir / f"dart_slt_weekday_stats_{safe_filename}.csv"
+        weekday_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
     
-    # Save weekday statistics
-    weekday_stats_df = pd.DataFrame(weekday_stats)
-    stats_path = output_dir / "dart_slt_weekday_stats.csv"
-    weekday_stats_df.to_csv(stats_path, index=False)
-    print(f"DART_SLT weekday statistics saved to: {stats_path}")
-    
-    # Print summary for quick review
-    print("\nWeekday Analysis Summary:")
-    print("=" * 50)
-    for _, row in weekday_stats_df.iterrows():
-        pos_mean = f"{row['positive_mean']:.3f}" if pd.notna(row['positive_mean']) else "N/A"
-        neg_mean = f"{row['negative_mean_abs']:.3f}" if pd.notna(row['negative_mean_abs']) else "N/A"
-        print(f"{row['weekday']:<10}: Positive={pos_mean}, Negative(Abs)={neg_mean}")
+    print(f"Weekday analysis complete: {len(unique_points)} settlement points processed")
 
 
 def plot_dart_slt_by_hour(
@@ -991,9 +1208,9 @@ def plot_dart_slt_by_hour(
     output_dir: Path,
     title_suffix: str = ""
 ) -> None:
-    """Create hourly analysis of signed log transformed DART distributions.
+    """Create hourly analysis of signed log transformed DART distributions for each settlement point.
     
-    Creates a bar plot showing:
+    Creates separate hourly analysis for each settlement point, with bar plots showing:
     - Average and standard deviation of positive dart_slt values by hour of day (local time)
     - Average and standard deviation of negative dart_slt values (absolute values) by hour of day
     - Error bars representing standard deviation
@@ -1002,12 +1219,19 @@ def plot_dart_slt_by_hour(
     business interpretation (e.g., hour 16 = 4 PM Central Time ending hour).
     
     Args:
-        df: DataFrame containing dart_slt column and local_ts timestamp column
+        df: DataFrame containing dart_slt column, end_of_hour column, location, and location_type
         output_dir: Directory where plots will be saved
         title_suffix: Optional suffix to add to plot title
     """
     # Prepare data
     df = df.copy()
+    
+    # Create point_identifier if not present
+    if "point_identifier" not in df.columns:
+        df["point_identifier"] = df.apply(
+            lambda row: f"{row['location']} ({row['location_type']})",
+            axis=1
+        )
     
     # Verify dart_slt column exists (should be provided by dataset)
     if "dart_slt" not in df.columns:
@@ -1017,126 +1241,1427 @@ def plot_dart_slt_by_hour(
     if "end_of_hour" not in df.columns:
         raise ValueError("end_of_hour column not found. Ensure dataset.py creates this column.")
     
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating hourly analysis for {len(unique_points)} settlement points")
+    
     # Use the end_of_hour column directly (no timestamp transformations needed)
     df["hour"] = df["end_of_hour"]
     
-    # Separate positive and negative values
-    dart_slt_clean = df.dropna(subset=["dart_slt", "hour"])
-    positive_data = dart_slt_clean[dart_slt_clean["dart_slt"] > 0].copy()
-    negative_data = dart_slt_clean[dart_slt_clean["dart_slt"] < 0].copy()
-    
-    # Take absolute values of negative data for proper interpretation
-    negative_data["dart_slt_abs"] = negative_data["dart_slt"].abs()
-    
-    print(f"Hourly analysis: {len(positive_data)} positive values, {len(negative_data)} negative values")
-    
-    # Calculate statistics by hour for both datasets
-    positive_stats = positive_data.groupby("hour")["dart_slt"].agg(["mean", "std", "count"]).reset_index()
-    negative_stats = negative_data.groupby("hour")["dart_slt_abs"].agg(["mean", "std", "count"]).reset_index()
-    
-    # Ensure all hours are present (fill missing with NaN) - 1 to 24 (since end_of_hour adds 1)
-    all_hours = list(range(1, 25))
-    positive_stats = positive_stats.set_index("hour").reindex(all_hours).reset_index()
-    negative_stats = negative_stats.set_index("hour").reindex(all_hours).reset_index()
-    
-    # Create the plot
-    fig = go.Figure()
-    
-    # Add positive DART_SLT bars
-    fig.add_trace(
-        go.Bar(
-            x=positive_stats["hour"],
-            y=positive_stats["mean"],
-            error_y=dict(
-                type="data",
-                array=positive_stats["std"],
-                visible=True,
-                color="darkblue"
-            ),
-            name="Positive DART_SLT",
-            marker_color="lightblue",
-            opacity=0.8,
-            offsetgroup=1
-        )
-    )
-    
-    # Add negative DART_SLT bars (absolute values)
-    fig.add_trace(
-        go.Bar(
-            x=negative_stats["hour"],
-            y=negative_stats["mean"],
-            error_y=dict(
-                type="data",
-                array=negative_stats["std"],
-                visible=True,
-                color="darkred"
-            ),
-            name="Negative DART_SLT (Absolute Values)",
-            marker_color="lightcoral",
-            opacity=0.8,
-            offsetgroup=2
-        )
-    )
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            "text": f"DART Signed-Log Transform by Delivery Hour (Local Time){title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
-            "x": 0.5,
-            "xanchor": "center"
-        },
-        xaxis_title="Delivery Hour (Central Time Ending Hour)",
-        yaxis_title="Mean Signed-Log Transformed DART",
-        height=600,
-        showlegend=True,
-        barmode="group",  # Group bars side by side
-        bargap=0.2,      # Gap between groups
-        bargroupgap=0.1  # Gap between bars in a group
-    )
-    
-    # Set x-axis to show all hours and format nicely
-    fig.update_xaxes(
-        tickmode="linear",
-        tick0=1,
-        dtick=1,
-        range=[0.5, 24.5]  # Show all hours from 1 to 24 (ending hours)
-    )
-    
-    # Save plot
+    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "dart_slt_by_hour.html"
-    fig.write_html(output_path)
-    print(f"DART_SLT hourly plot saved to: {output_path}")
     
-    # Prepare comprehensive statistics for CSV output
-    hourly_stats = []
-    
-    for hour in all_hours:
-        pos_row = positive_stats[positive_stats["hour"] == hour]
-        neg_row = negative_stats[negative_stats["hour"] == hour]
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point]
         
-        hourly_stats.append({
-            "hour": hour,
-            "positive_mean": pos_row["mean"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["mean"].iloc[0]) else None,
-            "positive_std": pos_row["std"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["std"].iloc[0]) else None,
-            "positive_count": pos_row["count"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["count"].iloc[0]) else 0,
-            "negative_mean_abs": neg_row["mean"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["mean"].iloc[0]) else None,
-            "negative_std_abs": neg_row["std"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["std"].iloc[0]) else None,
-            "negative_count": neg_row["count"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["count"].iloc[0]) else 0
+        # Separate positive and negative values
+        dart_slt_clean = point_data.dropna(subset=["dart_slt", "hour"])
+        positive_data = dart_slt_clean[dart_slt_clean["dart_slt"] > 0].copy()
+        negative_data = dart_slt_clean[dart_slt_clean["dart_slt"] < 0].copy()
+        
+        # Take absolute values of negative data for proper interpretation
+        negative_data["dart_slt_abs"] = negative_data["dart_slt"].abs()
+        
+        if len(positive_data) < 5 and len(negative_data) < 5:
+            print(f"Warning: Insufficient data for {point}, skipping")
+            continue
+            
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
+        
+        # Calculate statistics by hour for both datasets
+        positive_stats = positive_data.groupby("hour")["dart_slt"].agg(["mean", "std", "count"]).reset_index()
+        negative_stats = negative_data.groupby("hour")["dart_slt_abs"].agg(["mean", "std", "count"]).reset_index()
+        
+        # Ensure all hours are present (fill missing with NaN) - 1 to 24 (since end_of_hour adds 1)
+        all_hours = list(range(1, 25))
+        positive_stats = positive_stats.set_index("hour").reindex(all_hours).reset_index()
+        negative_stats = negative_stats.set_index("hour").reindex(all_hours).reset_index()
+        
+        # Create the plot
+        fig = go.Figure()
+        
+        # Add positive DART_SLT bars
+        fig.add_trace(
+            go.Bar(
+                x=positive_stats["hour"],
+                y=positive_stats["mean"],
+                error_y=dict(
+                    type="data",
+                    array=positive_stats["std"],
+                    visible=True,
+                    color="darkblue"
+                ),
+                name="Positive DART_SLT",
+                marker_color="lightblue",
+                opacity=0.8,
+                offsetgroup=1
+            )
+        )
+        
+        # Add negative DART_SLT bars (absolute values)
+        fig.add_trace(
+            go.Bar(
+                x=negative_stats["hour"],
+                y=negative_stats["mean"],
+                error_y=dict(
+                    type="data",
+                    array=negative_stats["std"],
+                    visible=True,
+                    color="darkred"
+                ),
+                name="Negative DART_SLT (Absolute Values)",
+                marker_color="lightcoral",
+                opacity=0.8,
+                offsetgroup=2
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform by Delivery Hour (Local Time) - {point}{title_suffix}<br><sub>Note: Negative values shown as absolute values for comparison with positive values</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Delivery Hour (Central Time Ending Hour)",
+            yaxis_title="Mean Signed-Log Transformed DART",
+            height=600,
+            showlegend=True,
+            barmode="group",  # Group bars side by side
+            bargap=0.2,      # Gap between groups
+            bargroupgap=0.1  # Gap between bars in a group
+        )
+        
+        # Set x-axis to show all hours and format nicely
+        fig.update_xaxes(
+            tickmode="linear",
+            tick0=1,
+            dtick=1,
+            range=[0.5, 24.5]  # Show all hours from 1 to 24 (ending hours)
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_by_hour_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Store comprehensive statistics for CSV output
+        hourly_stats = []
+        for hour in all_hours:
+            pos_row = positive_stats[positive_stats["hour"] == hour]
+            neg_row = negative_stats[negative_stats["hour"] == hour]
+            
+            hourly_stats.append({
+                "Settlement_Point": point,
+                "hour": hour,
+                "positive_mean": pos_row["mean"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["mean"].iloc[0]) else None,
+                "positive_std": pos_row["std"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["std"].iloc[0]) else None,
+                "positive_count": pos_row["count"].iloc[0] if len(pos_row) > 0 and not pd.isna(pos_row["count"].iloc[0]) else 0,
+                "negative_mean_abs": neg_row["mean"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["mean"].iloc[0]) else None,
+                "negative_std_abs": neg_row["std"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["std"].iloc[0]) else None,
+                "negative_count": neg_row["count"].iloc[0] if len(neg_row) > 0 and not pd.isna(neg_row["count"].iloc[0]) else 0
+            })
+        
+        # Save individual hourly statistics
+        hourly_stats_df = pd.DataFrame(hourly_stats)
+        stats_path = output_dir / f"dart_slt_hourly_stats_{safe_filename}.csv"
+        hourly_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Hourly analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_power_spectrum(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create power spectrum analysis of signed log transformed DART time series for each settlement point.
+    
+    Performs Fast Fourier Transform (FFT) on the DART_SLT time series to identify
+    periodic patterns and frequency components in price differences.
+    
+    Creates separate power spectrum plots for each settlement point.
+    
+    Creates plots showing:
+    - Power spectrum magnitude in dB vs frequency
+    - Frequency axis in cycles per day for business interpretation
+    - Identification of dominant frequency components
+    
+    Args:
+        df: DataFrame containing dart_slt column, timestamp data, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "utc_ts", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating power spectrum analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Sort by timestamp and remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "utc_ts"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < 24:  # Need at least a day's worth of data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} data points")
+        
+        try:
+            # Compute power spectrum using the utility function
+            spectrum_results = compute_power_spectrum(
+                time_series=point_clean["dart_slt"].values,
+                timestamps=point_clean["utc_ts"],
+                peak_percentile=85
+            )
+            
+            print(f"  Sampling frequency: {spectrum_results['sampling_freq_per_day']:.1f} cycles/day")
+            
+        except ValueError as e:
+            print(f"Warning: Power spectrum computation failed for {point}: {e}")
+            continue
+        
+        # Create the plot
+        fig = go.Figure()
+        
+        # Add power spectrum trace
+        fig.add_trace(
+            go.Scatter(
+                x=spectrum_results["freq_bins_per_day"],
+                y=spectrum_results["power_spectrum_db"],
+                mode="lines",
+                name=f"{point} Power Spectrum",
+                line=dict(color="blue", width=1.5),
+                showlegend=True
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Power Spectrum Analysis - {point}{title_suffix}<br><sub>Frequency domain analysis</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Frequency (Cycles per Day)",
+            yaxis_title="Power Spectral Density (dB)",
+            height=600,
+            showlegend=True,
+            xaxis=dict(
+                type="log",
+                range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
+                title="Frequency (Cycles per Day)"
+            ),
+            yaxis=dict(
+                title="Power Spectral Density (dB)"
+            )
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_power_spectrum_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Store statistics for this settlement point using the computed results
+        point_stats = {
+            "Settlement_Point": point,
+            "Data_Points": spectrum_results["n_samples"],
+            "Sampling_Freq_CyclesPerDay": spectrum_results["sampling_freq_per_day"],
+            "DC_Power_dB": spectrum_results["dc_power_db"],
+            "Peak_Count": len(spectrum_results["peak_indices"])
+        }
+        
+        # Add top 3 peaks using the computed results
+        for j in range(min(3, len(spectrum_results["peak_frequencies"]))):
+            point_stats[f"Peak_{j+1}_Freq_CyclesPerDay"] = spectrum_results["peak_frequencies"][j]
+            point_stats[f"Peak_{j+1}_Period_Hours"] = spectrum_results["peak_periods"][j]
+            point_stats[f"Peak_{j+1}_Power_dB"] = spectrum_results["peak_powers"][j]
+        
+        # Save individual power spectrum statistics
+        spectrum_stats_df = pd.DataFrame([point_stats])
+        stats_path = output_dir / f"dart_slt_power_spectrum_stats_{safe_filename}.csv"
+        spectrum_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Power spectrum analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_power_spectrum_bimodal(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create bimodal power spectrum analysis of signed log transformed DART time series for each settlement point.
+    
+    Performs separate Fast Fourier Transform (FFT) analysis on positive and negative DART_SLT values
+    to identify different periodic patterns in each mode of the bimodal distribution.
+    
+    Creates separate power spectrum plots for each settlement point with:
+    - Upper plot: Power spectrum of positive DART_SLT values
+    - Lower plot: Power spectrum of absolute values of negative DART_SLT values
+    
+    This helps understand if positive and negative price differences have different
+    underlying dynamics or periodicities.
+    
+    Args:
+        df: DataFrame containing dart_slt column, timestamp data, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "utc_ts", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating bimodal power spectrum analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Sort by timestamp and remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "utc_ts"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < 24:  # Need at least a day's worth of data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Separate positive and negative values
+        positive_data = point_clean[point_clean["dart_slt"] > 0].copy()
+        negative_data = point_clean[point_clean["dart_slt"] < 0].copy()
+        
+        # Take absolute values of negative data for power spectrum analysis
+        if len(negative_data) > 0:
+            negative_data = negative_data.copy()
+            negative_data["dart_slt_abs"] = negative_data["dart_slt"].abs()
+        
+        # Check if we have sufficient data for both modes
+        if len(positive_data) < 24 and len(negative_data) < 24:
+            print(f"Warning: Insufficient data for both modes for {point}, skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(positive_data)} positive values, {len(negative_data)} negative values")
+        
+        # Create subplot with 2 rows, 1 column
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.25,  # Increased from 0.15 to 0.25 for more room
+            subplot_titles=[
+                "Positive DART_SLT Power Spectrum",  # Shortened title - point name will be in main title
+                "Negative DART_SLT Power Spectrum (Absolute Values)"  # Shortened title
+            ]
+        )
+
+        # Store statistics for this settlement point
+        bimodal_spectrum_stats = []
+        
+        # Process both datasets
+        datasets = [
+            (positive_data, "dart_slt", "Positive DART_SLT", "blue", 1),
+            (negative_data, "dart_slt_abs", "Negative DART_SLT (Abs)", "red", 2)
+        ]
+        
+        for data, value_col, name, color, row in datasets:
+            if len(data) < 24:  # Skip if insufficient data
+                print(f"Warning: Insufficient data for {point} {name} ({len(data)} points)")
+                continue
+                
+            try:
+                # Compute power spectrum using the utility function
+                spectrum_results = compute_power_spectrum(
+                    time_series=data[value_col].values,
+                    timestamps=data["utc_ts"],
+                    peak_percentile=85
+                )
+                
+                print(f"  {name} sampling frequency: {spectrum_results['sampling_freq_per_day']:.1f} cycles/day")
+                
+            except ValueError as e:
+                print(f"Warning: Power spectrum computation failed for {point} {name}: {e}")
+                continue
+            
+            # Add power spectrum trace
+            fig.add_trace(
+                go.Scatter(
+                    x=spectrum_results["freq_bins_per_day"],
+                    y=spectrum_results["power_spectrum_db"],
+                    mode="lines",
+                    name=f"{name}",
+                    line=dict(color=color, width=1.5),
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+            
+            # Store statistics for this mode using the computed results
+            mode_stats = {
+                "Settlement_Point": point,
+                "Mode": name,
+                "Data_Points": spectrum_results["n_samples"],
+                "Sampling_Freq_CyclesPerDay": spectrum_results["sampling_freq_per_day"],
+                "DC_Power_dB": spectrum_results["dc_power_db"],
+                "Peak_Count": len(spectrum_results["peak_indices"])
+            }
+            
+            # Add top 3 peaks using the computed results
+            for j in range(min(3, len(spectrum_results["peak_frequencies"]))):
+                mode_stats[f"Peak_{j+1}_Freq_CyclesPerDay"] = spectrum_results["peak_frequencies"][j]
+                mode_stats[f"Peak_{j+1}_Period_Hours"] = spectrum_results["peak_periods"][j]
+                mode_stats[f"Peak_{j+1}_Power_dB"] = spectrum_results["peak_powers"][j]
+            
+            bimodal_spectrum_stats.append(mode_stats)
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Bimodal Power Spectrum Analysis - {point}{title_suffix}<br><sub>Separate frequency analysis for positive and negative values</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            height=900,  # Increased from 800 to 900 for better spacing
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="Power Spectral Density (dB)", row=1, col=1)
+        fig.update_yaxes(title_text="Power Spectral Density (dB)", row=2, col=1)
+        fig.update_xaxes(title_text="Frequency (Cycles per Day)", row=2, col=1)
+        
+        # Set log scale for both x-axes
+        fig.update_xaxes(
+            type="log",
+            range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
+            row=1, col=1
+        )
+        fig.update_xaxes(
+            type="log",
+            range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
+            row=2, col=1
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_power_spectrum_bimodal_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save individual bimodal power spectrum statistics
+        if bimodal_spectrum_stats:
+            bimodal_spectrum_stats_df = pd.DataFrame(bimodal_spectrum_stats)
+            stats_path = output_dir / f"dart_slt_power_spectrum_bimodal_stats_{safe_filename}.csv"
+            bimodal_spectrum_stats_df.to_csv(stats_path, index=False)
+            print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Bimodal power spectrum analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_sign_power_spectrum(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create power spectrum analysis of DART signed log transform sign sequence for each settlement point.
+    
+    Converts the DART_SLT time series to a sign sequence where positive values become +1.0
+    and negative values become -1.0, then performs FFT analysis to identify periodic patterns
+    in the timing of when price differences switch from positive to negative.
+    
+    This reveals market timing patterns such as daily cycles of when real-time prices
+    tend to be above vs below day-ahead prices.
+    
+    Creates separate plots for each settlement point showing:
+    - Power spectrum magnitude in dB vs frequency for the sign sequence
+    - Frequency axis in cycles per day for business interpretation
+    
+    Args:
+        df: DataFrame containing dart_slt column, timestamp data, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "utc_ts", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating sign sequence power spectrum analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Sort by timestamp and remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "utc_ts"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < 24:  # Need at least a day's worth of data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create sign sequence: +1.0 for positive, -1.0 for negative
+        point_clean["dart_slt_sign"] = point_clean["dart_slt"].apply(
+            lambda x: 1.0 if x > 0 else -1.0 if x < 0 else 0.0
+        )
+        
+        # Remove any zero values (if DART_SLT was exactly zero)
+        point_clean = point_clean[point_clean["dart_slt_sign"] != 0.0]
+        
+        if len(point_clean) < 24:  # Recheck after removing zeros
+            print(f"Warning: Insufficient non-zero data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} sign sequence data points")
+        
+        try:
+            # Compute power spectrum using the utility function on the sign sequence
+            spectrum_results = compute_power_spectrum(
+                time_series=point_clean["dart_slt_sign"].values,
+                timestamps=point_clean["utc_ts"],
+                peak_percentile=85
+            )
+            
+            print(f"  Sampling frequency: {spectrum_results['sampling_freq_per_day']:.1f} cycles/day")
+            
+        except ValueError as e:
+            print(f"Warning: Sign sequence power spectrum computation failed for {point}: {e}")
+            continue
+        
+        # Create the plot
+        fig = go.Figure()
+        
+        # Add power spectrum trace
+        fig.add_trace(
+            go.Scatter(
+                x=spectrum_results["freq_bins_per_day"],
+                y=spectrum_results["power_spectrum_db"],
+                mode="lines",
+                name=f"{point} Sign Sequence",
+                line=dict(color="green", width=1.5),
+                showlegend=True
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Sign Sequence Power Spectrum - {point}{title_suffix}<br><sub>Frequency analysis of positive/negative timing patterns</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Frequency (Cycles per Day)",
+            yaxis_title="Power Spectral Density (dB)",
+            height=600,
+            showlegend=True,
+            xaxis=dict(
+                type="log",
+                range=[-2, 1.5],  # Show from 0.01 to ~30 cycles/day
+                title="Frequency (Cycles per Day)"
+            ),
+            yaxis=dict(
+                title="Power Spectral Density (dB)"
+            )
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_sign_power_spectrum_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Store statistics for this settlement point using the computed results
+        point_stats = {
+            "Settlement_Point": point,
+            "Data_Points": spectrum_results["n_samples"],
+            "Positive_Count": int((point_clean["dart_slt_sign"] > 0).sum()),
+            "Negative_Count": int((point_clean["dart_slt_sign"] < 0).sum()),
+            "Positive_Proportion": float((point_clean["dart_slt_sign"] > 0).mean()),
+            "Sampling_Freq_CyclesPerDay": spectrum_results["sampling_freq_per_day"],
+            "DC_Power_dB": spectrum_results["dc_power_db"],
+            "Peak_Count": len(spectrum_results["peak_indices"])
+        }
+        
+        # Add top 3 peaks using the computed results
+        for j in range(min(3, len(spectrum_results["peak_frequencies"]))):
+            point_stats[f"Peak_{j+1}_Freq_CyclesPerDay"] = spectrum_results["peak_frequencies"][j]
+            point_stats[f"Peak_{j+1}_Period_Hours"] = spectrum_results["peak_periods"][j]
+            point_stats[f"Peak_{j+1}_Power_dB"] = spectrum_results["peak_powers"][j]
+        
+        # Save individual sign sequence power spectrum statistics
+        spectrum_stats_df = pd.DataFrame([point_stats])
+        stats_path = output_dir / f"dart_slt_sign_power_spectrum_stats_{safe_filename}.csv"
+        spectrum_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Sign sequence power spectrum analysis complete: {len(unique_points)} settlement points processed") 
+
+
+def plot_dart_slt_sign_daily_heatmap(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create daily cycle heatmap of DART signed log transform positivity rates for each settlement point.
+    
+    Creates heatmaps showing the proportion of positive DART values by hour of day and day of week.
+    This reveals daily and weekly patterns in when real-time prices tend to be above vs below
+    day-ahead prices.
+    
+    Construction approach:
+    1. Convert DART_SLT to binary: 1 if positive, 0 if negative
+    2. Group by hour of day (1-24) and day of week
+    3. Compute positivity rate (proportion of 1s) for each cell
+    4. Visualize as heatmap with diverging color scale
+    
+    Creates separate plots for each settlement point showing:
+    - X-axis: Day of week (Monday-Sunday)
+    - Y-axis: Hour of day (1-24, ending hour)
+    - Color: Positivity rate (0=always negative, 1=always positive, 0.5=balanced)
+    
+    Args:
+        df: DataFrame containing dart_slt column, time columns, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "day_of_week", "end_of_hour", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating daily cycle heatmaps for {len(unique_points)} settlement points")
+    
+    # Create day of week mapping for better labels
+    day_mapping = {
+        0: "Monday",
+        1: "Tuesday", 
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday"
+    }
+    
+    df["weekday"] = df["day_of_week"].map(day_mapping)
+    day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "weekday", "end_of_hour"]).copy()
+        
+        if len(point_clean) < 24:  # Need sufficient data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create binary time series: 1 if positive, 0 if negative/zero
+        point_clean["dart_positive"] = (point_clean["dart_slt"] > 0).astype(int)
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} data points")
+        
+        # Group by hour and day of week, compute positivity rate
+        heatmap_data = point_clean.groupby(["end_of_hour", "weekday"])["dart_positive"].agg([
+            'mean',  # positivity rate
+            'count', # sample size
+            'sum'    # positive count
+        ]).reset_index()
+        
+        # Rename columns for clarity
+        heatmap_data.columns = ["hour", "weekday", "positivity_rate", "sample_count", "positive_count"]
+        
+        # Create pivot table for heatmap
+        pivot_data = heatmap_data.pivot(index="hour", columns="weekday", values="positivity_rate")
+        
+        # Reorder columns to standard week order and ensure all hours are present
+        pivot_data = pivot_data.reindex(columns=day_order, fill_value=None)
+        all_hours = list(range(1, 25))  # 1 to 24 (ending hours)
+        pivot_data = pivot_data.reindex(index=all_hours, fill_value=None)
+        
+        # Create the heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot_data.values,
+            x=pivot_data.columns,
+            y=pivot_data.index,
+            colorscale='RdBu',  # Red-Blue diverging scale (Red=negative dominant, Blue=positive dominant)
+            zmid=0.5,  # Center the colorscale at 0.5 (balanced)
+            zmin=0,
+            zmax=1,
+            hoverongaps=False,
+            hovertemplate='<b>%{y}:00 %{x}</b><br>Positivity Rate: %{z:.2f}<br><extra></extra>',
+            colorbar=dict(
+                title="Positivity Rate",
+                tickmode="linear",
+                tick0=0,
+                dtick=0.1,
+                tickformat=".1f"
+            )
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Daily Cycle Heatmap - {point}{title_suffix}<br><sub>Positivity rate by hour and day of week (Blue=mostly positive, Red=mostly negative)</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Day of Week",
+            yaxis_title="Hour of Day (Ending Hour)",
+            height=600,
+            width=800,
+            xaxis=dict(
+                tickmode="array",
+                tickvals=day_order,
+                ticktext=day_order
+            ),
+            yaxis=dict(
+                tickmode="linear",
+                tick0=1,
+                dtick=1,
+                autorange="reversed"  # Hour 1 at top, 24 at bottom
+            )
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_sign_daily_heatmap_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save detailed statistics
+        heatmap_stats = heatmap_data.copy()
+        heatmap_stats["Settlement_Point"] = point
+        heatmap_stats["negative_count"] = heatmap_stats["sample_count"] - heatmap_stats["positive_count"]
+        heatmap_stats["negative_rate"] = 1 - heatmap_stats["positivity_rate"]
+        
+        # Reorder columns for better readability
+        heatmap_stats = heatmap_stats[[
+            "Settlement_Point", "weekday", "hour", "sample_count", 
+            "positive_count", "negative_count", "positivity_rate", "negative_rate"
+        ]]
+        
+        stats_path = output_dir / f"dart_slt_sign_daily_heatmap_stats_{safe_filename}.csv"
+        heatmap_stats.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Daily cycle heatmap analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_spectrogram(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create spectrogram analysis of signed log transformed DART time series for each settlement point.
+    
+    Performs Short-Time Fourier Transform (STFT) to show how the frequency content of DART_SLT
+    changes over time. This reveals if periodic patterns are stable or evolving.
+    
+    Creates separate spectrogram plots for each settlement point showing:
+    - X-axis: Time
+    - Y-axis: Frequency (cycles per day)  
+    - Color: Power spectral density (dB)
+    - Window analysis to capture temporal evolution of spectral content
+    
+    Args:
+        df: DataFrame containing dart_slt column, timestamp data, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "utc_ts", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating spectrogram analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Sort by timestamp and remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "utc_ts"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < 168:  # Need at least a week's worth of data for meaningful spectrogram
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} data points")
+        
+        try:
+            # Calculate sampling parameters
+            timestamps = pd.to_datetime(point_clean["utc_ts"])
+            time_diffs = timestamps.diff().dropna()
+            median_dt = time_diffs.median()
+            sampling_freq_hz = 1 / median_dt.total_seconds()
+            
+            # Perform STFT with appropriate window size
+            window_size = min(168, len(point_clean) // 4)  # ~1 week or 1/4 of data
+            overlap = window_size // 2  # 50% overlap
+            
+            from scipy.signal import spectrogram
+            frequencies, times_stft, Sxx = spectrogram(
+                point_clean["dart_slt"].values,
+                fs=sampling_freq_hz,
+                window='hann',
+                nperseg=window_size,
+                noverlap=overlap,
+                scaling='density'
+            )
+            
+            # Convert to dB and cycles per day
+            Sxx_db = 10 * np.log10(Sxx + 1e-12)
+            frequencies_cpd = frequencies * 86400  # Convert Hz to cycles per day
+            
+            # Convert time indices to actual timestamps for x-axis
+            time_indices = times_stft * len(point_clean) / (len(point_clean) / sampling_freq_hz)
+            time_labels = [timestamps.iloc[int(min(i, len(timestamps) - 1))] for i in time_indices]
+            
+        except Exception as e:
+            print(f"Warning: Spectrogram computation failed for {point}: {e}")
+            continue
+        
+        # Create the spectrogram plot
+        fig = go.Figure(data=go.Heatmap(
+            z=Sxx_db,
+            x=time_labels,
+            y=frequencies_cpd,
+            colorscale='Viridis',
+            hovertemplate='<b>Time: %{x}</b><br>Frequency: %{y:.2f} cycles/day<br>Power: %{z:.1f} dB<br><extra></extra>',
+            colorbar=dict(
+                title="Power Spectral Density (dB)"
+            )
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Spectrogram - {point}{title_suffix}<br><sub>Time-frequency analysis showing spectral evolution</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            xaxis_title="Time",
+            yaxis_title="Frequency (Cycles per Day)",
+            height=600,
+            yaxis=dict(
+                range=[0, min(10, frequencies_cpd.max())]  # Focus on 0-10 cycles/day
+            )
+        )
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_spectrogram_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save spectrogram statistics
+        spectrogram_stats = [{
+            "Settlement_Point": point,
+            "Data_Points": len(point_clean),
+            "Window_Size": window_size,
+            "Overlap": overlap,
+            "Time_Windows": len(times_stft),
+            "Frequency_Bins": len(frequencies_cpd),
+            "Max_Frequency_CPD": frequencies_cpd.max(),
+            "Sampling_Freq_Hz": sampling_freq_hz,
+            "Mean_Power_dB": Sxx_db.mean(),
+            "Max_Power_dB": Sxx_db.max()
+        }]
+        
+        spectrogram_stats_df = pd.DataFrame(spectrogram_stats)
+        stats_path = output_dir / f"dart_slt_spectrogram_stats_{safe_filename}.csv"
+        spectrogram_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Spectrogram analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_moving_window_stats(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = "",
+    window_hours: int = 168  # Default to 1 week window
+) -> None:
+    """Create moving window statistics analysis of signed log transformed DART for each settlement point.
+    
+    Computes rolling statistics over time windows to reveal temporal structure and non-stationarity
+    in the DART_SLT time series. This helps identify if statistical properties change over time.
+    
+    Creates separate plots for each settlement point with multiple subplots showing:
+    - Rolling mean and standard deviation
+    - Rolling skewness and kurtosis
+    - Rolling percentage of positive values
+    - Rolling autocorrelation at lag 24 (daily pattern strength)
+    
+    Args:
+        df: DataFrame containing dart_slt column, timestamp data, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+        window_hours: Size of rolling window in hours (default: 168 = 1 week)
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "utc_ts", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating moving window statistics analysis for {len(unique_points)} settlement points")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Sort by timestamp and remove NaN values
+        point_clean = point_data.dropna(subset=["dart_slt", "utc_ts"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < window_hours * 2:  # Need at least 2 windows worth of data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} data points with {window_hours}h window")
+        
+        # Convert to pandas datetime index for rolling operations
+        point_clean = point_clean.set_index('utc_ts')
+        point_clean.index = pd.to_datetime(point_clean.index)
+        
+        # Compute rolling statistics
+        window_str = f"{window_hours}h"
+        
+        rolling_mean = point_clean["dart_slt"].rolling(window_str, min_periods=24).mean()
+        rolling_std = point_clean["dart_slt"].rolling(window_str, min_periods=24).std()
+        rolling_skew = point_clean["dart_slt"].rolling(window_str, min_periods=24).skew()
+        rolling_kurt = point_clean["dart_slt"].rolling(window_str, min_periods=24).apply(lambda x: x.kurtosis())
+        rolling_positive_pct = point_clean["dart_slt"].rolling(window_str, min_periods=24).apply(lambda x: (x > 0).mean() * 100)
+        
+        # Compute rolling autocorrelation at lag 24 (daily pattern)
+        def rolling_autocorr_24(series):
+            if len(series) < 48:  # Need at least 2 days
+                return np.nan
+            return series.autocorr(lag=24)
+        
+        rolling_autocorr = point_clean["dart_slt"].rolling(window_str, min_periods=48).apply(rolling_autocorr_24)
+        
+        # Create subplot with 2x2 grid
+        fig = make_subplots(
+            rows=2, cols=2,
+            shared_xaxes=True,
+            vertical_spacing=0.15,
+            horizontal_spacing=0.15,
+            subplot_titles=[
+                f"Rolling Mean ± Std Dev ({window_hours}h window)",
+                f"Rolling Skewness & Kurtosis ({window_hours}h window)", 
+                f"Rolling Positive Rate % ({window_hours}h window)",
+                f"Rolling Daily Autocorrelation ({window_hours}h window)"
+            ]
+        )
+        
+        # Plot 1: Rolling mean and std
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_mean.index,
+                y=rolling_mean.values,
+                mode="lines",
+                name="Rolling Mean",
+                line=dict(color="blue", width=2),
+                showlegend=True
+            ),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_std.index,
+                y=rolling_std.values,
+                mode="lines",
+                name="Rolling Std Dev",
+                line=dict(color="red", width=2),
+                yaxis="y2",
+                showlegend=True
+            ),
+            row=1, col=1
+        )
+        
+        # Plot 2: Rolling skewness and kurtosis
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_skew.index,
+                y=rolling_skew.values,
+                mode="lines",
+                name="Rolling Skewness",
+                line=dict(color="green", width=2),
+                showlegend=True
+            ),
+            row=1, col=2
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_kurt.index,
+                y=rolling_kurt.values,
+                mode="lines",
+                name="Rolling Kurtosis",
+                line=dict(color="orange", width=2),
+                yaxis="y4",
+                showlegend=True
+            ),
+            row=1, col=2
+        )
+        
+        # Plot 3: Rolling positive percentage
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_positive_pct.index,
+                y=rolling_positive_pct.values,
+                mode="lines",
+                name="Positive Rate %",
+                line=dict(color="purple", width=2),
+                showlegend=True
+            ),
+            row=2, col=1
+        )
+        
+        # Add 50% reference line
+        fig.add_hline(y=50, line_dash="dash", line_color="gray", row=2, col=1)
+        
+        # Plot 4: Rolling autocorrelation
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_autocorr.index,
+                y=rolling_autocorr.values,
+                mode="lines",
+                name="Daily Autocorr (lag=24h)",
+                line=dict(color="brown", width=2),
+                showlegend=True
+            ),
+            row=2, col=2
+        )
+        
+        # Add 0 reference line
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=2)
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Moving Window Statistics - {point}{title_suffix}<br><sub>Rolling statistics analysis with {window_hours}h window</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            height=800,
+            showlegend=True
+        )
+        
+        # Update axis labels
+        fig.update_yaxes(title_text="DART_SLT", row=1, col=1)
+        fig.update_yaxes(title_text="Skewness", row=1, col=2)
+        fig.update_yaxes(title_text="Positive Rate (%)", row=2, col=1)
+        fig.update_yaxes(title_text="Autocorrelation", row=2, col=2)
+        fig.update_xaxes(title_text="Time", row=2, col=1)
+        fig.update_xaxes(title_text="Time", row=2, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_moving_window_stats_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save moving window statistics
+        window_stats = pd.DataFrame({
+            "timestamp": rolling_mean.index,
+            "rolling_mean": rolling_mean.values,
+            "rolling_std": rolling_std.values,
+            "rolling_skewness": rolling_skew.values,
+            "rolling_kurtosis": rolling_kurt.values,
+            "rolling_positive_pct": rolling_positive_pct.values,
+            "rolling_daily_autocorr": rolling_autocorr.values
         })
+        
+        window_stats["Settlement_Point"] = point
+        window_stats = window_stats.dropna()  # Remove NaN values from beginning
+        
+        stats_path = output_dir / f"dart_slt_moving_window_stats_{safe_filename}.csv"
+        window_stats.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
     
-    # Save hourly statistics
-    hourly_stats_df = pd.DataFrame(hourly_stats)
-    stats_path = output_dir / "dart_slt_hourly_stats.csv"
-    hourly_stats_df.to_csv(stats_path, index=False)
-    print(f"DART_SLT hourly statistics saved to: {stats_path}")
+    print(f"Moving window statistics analysis complete: {len(unique_points)} settlement points processed")
+
+
+def plot_dart_slt_sign_transitions(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = ""
+) -> None:
+    """Create sign transition analysis of signed log transformed DART for each settlement point.
     
-    # Print summary for quick review of key business hours
-    print("\nHourly Analysis Summary (Key Business Hours):")
-    print("=" * 55)
-    key_hours = [7, 8, 9, 10, 17, 18, 19, 20, 21]  # Morning and evening peaks (ending hours)
-    for hour in key_hours:
-        row = hourly_stats_df[hourly_stats_df["hour"] == hour].iloc[0]
-        pos_mean = f"{row['positive_mean']:.3f}" if pd.notna(row['positive_mean']) else "N/A"
-        neg_mean = f"{row['negative_mean_abs']:.3f}" if pd.notna(row['negative_mean_abs']) else "N/A"
-        print(f"Hour {hour:2d}:00: Positive={pos_mean}, Negative(Abs)={neg_mean}") 
+    Analyzes the patterns in transitions between positive and negative DART_SLT values
+    to understand market switching behavior and persistence patterns.
+    
+    Creates separate plots for each settlement point with multiple subplots showing:
+    - Transition matrix heatmap (positive->positive, positive->negative, etc.)
+    - Run length distributions (how long positive/negative streaks last)
+    - Transition timing analysis by hour of day
+    - Transition probability by day of week
+    
+    Args:
+        df: DataFrame containing dart_slt column, time columns, location, and location_type
+        output_dir: Directory where plots will be saved
+        title_suffix: Optional suffix to add to plot title
+    """
+    # Prepare data
+    df = df.copy()
+    
+    # Verify required columns exist
+    required_cols = ["dart_slt", "day_of_week", "end_of_hour", "location", "location_type"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Create unique identifier combining location and type
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})",
+        axis=1
+    )
+    
+    # Get unique settlement points
+    unique_points = df["point_identifier"].unique()
+    print(f"Creating sign transition analysis for {len(unique_points)} settlement points")
+    
+    # Create day mapping
+    day_mapping = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+    df["weekday"] = df["day_of_week"].map(day_mapping)
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate separate plot for each settlement point
+    for point in unique_points:
+        point_data = df[df["point_identifier"] == point].copy()
+        
+        # Remove NaN values and sort by time
+        point_clean = point_data.dropna(subset=["dart_slt", "weekday", "end_of_hour"]).copy()
+        point_clean = point_clean.sort_values("utc_ts").reset_index(drop=True)
+        
+        if len(point_clean) < 48:  # Need at least 2 days of data
+            print(f"Warning: Insufficient data for {point} ({len(point_clean)} points), skipping")
+            continue
+        
+        # Create safe filename
+        safe_filename = point.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        
+        print(f"Processing {point}: {len(point_clean)} data points")
+        
+        # Create sign sequence
+        point_clean["dart_sign"] = np.where(point_clean["dart_slt"] > 0, 1, -1)
+        
+        # Analyze transitions
+        transitions = []
+        run_lengths_pos = []
+        run_lengths_neg = []
+        current_run_length = 1
+        current_sign = point_clean["dart_sign"].iloc[0]
+        
+        for i in range(1, len(point_clean)):
+            prev_sign = point_clean["dart_sign"].iloc[i-1]
+            curr_sign = point_clean["dart_sign"].iloc[i]
+            
+            # Record transition
+            transitions.append({
+                "from_state": "Positive" if prev_sign == 1 else "Negative",
+                "to_state": "Positive" if curr_sign == 1 else "Negative",
+                "hour": point_clean["end_of_hour"].iloc[i],
+                "weekday": point_clean["weekday"].iloc[i]
+            })
+            
+            # Track run lengths
+            if curr_sign == current_sign:
+                current_run_length += 1
+            else:
+                # End of run
+                if current_sign == 1:
+                    run_lengths_pos.append(current_run_length)
+                else:
+                    run_lengths_neg.append(current_run_length)
+                current_run_length = 1
+                current_sign = curr_sign
+        
+        # Add final run
+        if current_sign == 1:
+            run_lengths_pos.append(current_run_length)
+        else:
+            run_lengths_neg.append(current_run_length)
+        
+        transitions_df = pd.DataFrame(transitions)
+        
+        # Create 2x2 subplot
+        fig = make_subplots(
+            rows=2, cols=2,
+            vertical_spacing=0.2,
+            horizontal_spacing=0.1,  # Reduce horizontal spacing since we have more width
+            subplot_titles=[
+                "State Transition Probabilities<br><sub>Positive ↔ Negative DART persistence</sub>",
+                "Run Length Distributions<br><sub>Duration of consecutive positive/negative periods</sub>",
+                "Sign Changes by Hour of Day<br><sub>When do positive/negative switches occur?</sub>", 
+                "Sign Changes by Day of Week<br><sub>Are switches more common on certain days?</sub>"
+            ]
+        )
+        
+        # Plot 1: Transition matrix
+        trans_matrix = transitions_df.groupby(["from_state", "to_state"]).size().unstack(fill_value=0)
+        trans_matrix_norm = trans_matrix.div(trans_matrix.sum(axis=1), axis=0)  # Normalize by row
+        
+        fig.add_trace(
+            go.Heatmap(
+                z=trans_matrix_norm.values,
+                x=trans_matrix_norm.columns,
+                y=trans_matrix_norm.index,
+                colorscale="Blues",
+                hovertemplate="From: %{y}<br>To: %{x}<br>Probability: %{z:.3f}<extra></extra>",
+                showscale=False,  # Remove the colorbar
+                text=trans_matrix_norm.round(3).values,
+                texttemplate="%{text}",
+                textfont={"size": 14, "color": "white"},
+                showlegend=False  # Turn off legend since it has its own colorbar
+            ),
+            row=1, col=1
+        )
+        
+        # Plot 2: Run length distributions
+        max_length = max(max(run_lengths_pos) if run_lengths_pos else 0,
+                        max(run_lengths_neg) if run_lengths_neg else 0)
+        
+        bins = list(range(1, min(max_length + 2, 25)))  # Cap at 24 hours
+        
+        if run_lengths_pos:
+            fig.add_trace(
+                go.Histogram(
+                    x=run_lengths_pos,
+                    name="Positive Runs",
+                    xbins=dict(start=0.5, end=max(bins)+0.5, size=1),
+                    marker_color="blue",
+                    opacity=0.7,
+                    legendgroup="runs",
+                    showlegend=True
+                ),
+                row=1, col=2
+            )
+        
+        if run_lengths_neg:
+            fig.add_trace(
+                go.Histogram(
+                    x=run_lengths_neg,
+                    name="Negative Runs", 
+                    xbins=dict(start=0.5, end=max(bins)+0.5, size=1),
+                    marker_color="red",
+                    opacity=0.7,
+                    legendgroup="runs",
+                    showlegend=True
+                ),
+                row=1, col=2
+            )
+        
+        # Plot 3: Transitions by hour (only actual state changes)
+        hour_transitions = transitions_df[transitions_df["from_state"] != transitions_df["to_state"]]
+        hour_counts = hour_transitions.groupby("hour").size().reindex(range(1, 25), fill_value=0)
+        
+        fig.add_trace(
+            go.Bar(
+                x=hour_counts.index,
+                y=hour_counts.values,
+                name="Sign Changes",
+                marker_color="green",
+                hovertemplate="Hour %{x}: %{y} sign changes<extra></extra>",
+                showlegend=False  # Turn off legend for this bar chart
+            ),
+            row=2, col=1
+        )
+        
+        # Plot 4: Transitions by weekday (only actual state changes)
+        weekday_transitions = hour_transitions.groupby("weekday").size().reindex(
+            ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], fill_value=0
+        )
+        
+        fig.add_trace(
+            go.Bar(
+                x=weekday_transitions.index,
+                y=weekday_transitions.values,
+                name="Sign Changes",
+                marker_color="orange",
+                hovertemplate="%{x}: %{y} sign changes<extra></extra>",
+                showlegend=False  # Turn off legend for this bar chart
+            ),
+            row=2, col=2
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title={
+                "text": f"DART Signed-Log Transform Sign Transition Analysis - {point}{title_suffix}<br><sub>Analysis of positive/negative switching patterns</sub>",
+                "x": 0.5,
+                "xanchor": "center"
+            },
+            height=900,  # Increased from 800
+            width=1400,  # Increased from 1200 
+            showlegend=True,
+            legend=dict(
+                orientation="v",
+                yanchor="top",
+                y=0.95,
+                xanchor="right", 
+                x=0.98,  # Position in upper right of the run length subplot
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor="rgba(0,0,0,0.3)",
+                borderwidth=1
+            )
+        )
+        
+        # Update axis labels
+        fig.update_xaxes(title_text="Run Length (Consecutive Hours)", row=1, col=2)
+        fig.update_yaxes(title_text="Frequency Count", row=1, col=2)
+        fig.update_xaxes(title_text="Hour of Day (1-24)", row=2, col=1)
+        fig.update_yaxes(title_text="Number of Sign Changes", row=2, col=1)
+        fig.update_xaxes(title_text="Day of Week", row=2, col=2)
+        fig.update_yaxes(title_text="Number of Sign Changes", row=2, col=2)
+        
+        # Save individual plot
+        output_path = output_dir / f"dart_slt_sign_transitions_{safe_filename}.html"
+        fig.write_html(output_path)
+        print(f"  Plot saved to: {output_path}")
+        
+        # Save transition statistics
+        transition_stats = [{
+            "Settlement_Point": point,
+            "Total_Transitions": len(transitions_df[transitions_df["from_state"] != transitions_df["to_state"]]),
+            "Pos_to_Neg_Transitions": len(transitions_df[(transitions_df["from_state"] == "Positive") & 
+                                                        (transitions_df["to_state"] == "Negative")]),
+            "Neg_to_Pos_Transitions": len(transitions_df[(transitions_df["from_state"] == "Negative") & 
+                                                        (transitions_df["to_state"] == "Positive")]),
+            "Pos_to_Pos_Persistence": len(transitions_df[(transitions_df["from_state"] == "Positive") & 
+                                                        (transitions_df["to_state"] == "Positive")]),
+            "Neg_to_Neg_Persistence": len(transitions_df[(transitions_df["from_state"] == "Negative") & 
+                                                        (transitions_df["to_state"] == "Negative")]),
+            "Mean_Positive_Run_Length": np.mean(run_lengths_pos) if run_lengths_pos else 0,
+            "Mean_Negative_Run_Length": np.mean(run_lengths_neg) if run_lengths_neg else 0,
+            "Max_Positive_Run_Length": max(run_lengths_pos) if run_lengths_pos else 0,
+            "Max_Negative_Run_Length": max(run_lengths_neg) if run_lengths_neg else 0
+        }]
+        
+        transition_stats_df = pd.DataFrame(transition_stats)
+        stats_path = output_dir / f"dart_slt_sign_transitions_stats_{safe_filename}.csv"
+        transition_stats_df.to_csv(stats_path, index=False)
+        print(f"  Statistics saved to: {stats_path}")
+    
+    print(f"Sign transition analysis complete: {len(unique_points)} settlement points processed")
