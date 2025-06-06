@@ -7,6 +7,15 @@ This initial analysis explores the hourly differences between ERCOT real-time ma
 
 ---
 
+## Temporal Dynamics
+
+![DART Time Series](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Sequence.png)
+
+Both raw and Signed Log Transform (SLT) DART series show frequent, high-amplitude spikes:
+- Many large events persist for only 1–3 hours
+- These transient but extreme excursions have significant economic impact
+- SLT representation captures structure while reducing sensitivity to scale
+
 ## Distributional Behavior
 
 ![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
@@ -24,17 +33,6 @@ The raw DART distribution is sharply peaked near zero with extreme outliers in b
 - Symmetrizes the distribution
 - Makes the tails more interpretable
 - Enables side-by-side analysis of positive and negative deviations
-
----
-
-## Temporal Dynamics
-
-![DART Time Series](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Sequence.png)
-
-Both raw and SLT DART series show frequent, high-amplitude spikes:
-- Many large events persist for only 1–3 hours
-- These transient but extreme excursions have significant economic impact
-- SLT representation captures structure while reducing sensitivity to scale
 
 ---
 
