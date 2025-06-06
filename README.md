@@ -20,21 +20,21 @@ Both raw and Signed Log Transform (SLT) DART series show frequent, high-amplitud
 
 ## Distributional Behavior
 
-![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
-
-The signed-log transform of DART (SLT) reveals a bimodal structure:
-- Both positive and negative regimes exhibit long right tails
-- Peak densities occur at moderate values (1–2 on the log scale), with sharp fall-off for extreme deviations
-- The tails are heavy and non-Gaussian, highlighting risk of large deviations
-
----
-
 ![Raw vs SLT Distributions](reports/figures/initial_dart_houston/DART_Price_Raw_and_Signed-Log_Transformed_Distribution.png)
 
 The raw DART distribution is sharply peaked near zero with extreme outliers in both directions. The signed-log transform:
 - Symmetrizes the distribution
 - Makes the tails more interpretable
 - Enables side-by-side analysis of positive and negative deviations
+
+---
+
+![Bimodal Signed-Log Histogram](reports/figures/initial_dart_houston/DART_Signed_Log-Transform_Bimodal_Analysis.png)
+
+The signed-log transform of DART (SLT) reveals a bimodal structure:
+- Both positive and negative regimes exhibit long right tails
+- Peak densities occur at moderate values (1–2 on the log scale), with sharp fall-off for extreme deviations
+- The tails are heavy and non-Gaussian, highlighting risk of large deviations
 
 ---
 
