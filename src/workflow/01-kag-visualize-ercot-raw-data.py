@@ -3,12 +3,14 @@
 import os
 import time
 from datetime import datetime
-from visualization.ercot.clients.load import LoadForecastViz
-from visualization.ercot.clients.solar import SolarGenerationViz
-from visualization.ercot.clients.wind import WindGenerationViz
-from visualization.ercot.clients.dam_lambda import DAMSystemLambdaViz
-from visualization.ercot.clients.dam_spp import DAMSettlementPointPricesViz
-from visualization.ercot.clients.rt_spp import RTSettlementPointPricesViz
+
+from src.visualization.ercot.clients.dam_lambda import DAMSystemLambdaViz
+from src.visualization.ercot.clients.dam_spp import DAMSettlementPointPricesViz
+from src.visualization.ercot.clients.load import LoadForecastViz
+from src.visualization.ercot.clients.rt_spp import RTSettlementPointPricesViz
+from src.visualization.ercot.clients.solar import SolarGenerationViz
+from src.visualization.ercot.clients.wind import WindGenerationViz
+
 
 def main():
     """Main function for visualizing raw ERCOT data."""
@@ -54,7 +56,7 @@ def main():
     print("\nGenerating DAM Settlement Point Prices visualizations...")
     dam_spp_viz = DAMSettlementPointPricesViz(data_dir=data_dir, output_dir=output_dir)
     dam_spp_viz.generate_plots()
-    
+
     # Create RT Settlement Point Prices visualizer and generate plots
     print("\nGenerating RT Settlement Point Prices visualizations...")
     rt_spp_viz = RTSettlementPointPricesViz(data_dir=data_dir, output_dir=output_dir)

@@ -1,32 +1,35 @@
 """Base class for ERCOT experiment datasets."""
 
 import os
+from abc import ABC
+from abc import abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
+from typing import List
+from typing import Optional
+
 import pandas as pd
-import numpy as np
-from abc import ABC, abstractmethod
 
 
 class ExpDataset(ABC):
     """Base class for experiment datasets.
-    
+
     This class provides the foundation for creating and managing experiment-specific
     datasets. It handles data loading, feature generation, and dataset management.
-    
+
     Each experiment should subclass this and implement the abstract methods to define
     its specific data processing needs.
     """
-    
+
     def __init__(
         self,
         input_dir: str,
         output_dir: str,
         input_files: List[str],
-        experiment_id: str
+        experiment_id: str,
     ):
         """Initialize the experiment dataset.
-        
+
         Args:
             input_dir: Directory containing processed input data files
             output_dir: Directory where experiment datasets will be saved
@@ -37,19 +40,19 @@ class ExpDataset(ABC):
         self.output_dir = Path(output_dir)
         self.input_files = input_files
         self.experiment_id = experiment_id
-        
+
         # Create output directory if it doesn't exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize data containers
         self.raw_data: Dict[str, pd.DataFrame] = {}
         self.dependent_vars: Optional[pd.DataFrame] = None
         self.independent_vars: Optional[pd.DataFrame] = None
-        self.study_dataset: Optional[pd.DataFrame] = None
-        
+        self.study_data: Optional[pd.DataFrame] = None
+
     def load_data(self) -> Dict[str, pd.DataFrame]:
         """Load all required input data files.
-        
+
         Returns:
             Dictionary mapping file identifiers to their DataFrames
         """
@@ -57,144 +60,43 @@ class ExpDataset(ABC):
             file_path = self.input_dir / file_name
             if not file_path.exists():
                 raise FileNotFoundError(f"Required input file not found: {file_path}")
-            
+
             # Store data with a clean identifier (remove file extension and suffixes)
             identifier = file_name.split(".")[0]  # Remove extension
             identifier = identifier.split("_clean")[0]  # Remove _clean suffix
-            identifier = identifier.split("_transformed")[0]  # Remove _transformed suffix
-            
+            identifier = identifier.split("_transformed")[
+                0
+            ]  # Remove _transformed suffix
+
             self.raw_data[identifier] = pd.read_csv(file_path)
-            
+
         return self.raw_data
-    
-    @staticmethod
-    def signed_log_transform(data):
-        """Apply signed logarithm transformation to price differences.
-        
-        The signed logarithm transformation is defined as:
-        z = sign(x) * log(1 + |x|)
-        
-        This transformation:
-        - Preserves the sign of the input (positive stays positive, negative stays negative)
-        - Compresses large values using logarithmic scaling
-        - Maps zero to zero
-        - Is symmetric: signed_log(-x) = -signed_log(x)
-        - Properly handles missing values (NaN)
-        
-        This is particularly useful for electricity price differences (like DART)
-        which can have extreme values and benefit from outlier-resistant transformations.
-        
-        Args:
-            data: pandas Series or scalar value
-            
-        Returns:
-            pandas Series (if input is Series) or scalar with same structure as input
-            
-        Example:
-            # For a single value
-            transformed = ExpDataset.signed_log_transform(15.7)
-            
-            # For a pandas Series (e.g., DART column)
-            df["dart_transformed"] = ExpDataset.signed_log_transform(df["dart"])
-        """
-        if isinstance(data, pd.Series):
-            # Pandas-native approach with proper NaN handling
-            return data.apply(lambda x: np.sign(x) * np.log(1 + abs(x)) if pd.notna(x) else np.nan)
-        else:
-            # Handle scalar values
-            if pd.notna(data):
-                return np.sign(data) * np.log(1 + abs(data))
-            else:
-                return np.nan
-    
+
     @abstractmethod
-    def generate_dependent_vars(self) -> pd.DataFrame:
+    def generate_dependent_vars(self):
         """Generate dependent variables (targets) for the experiment.
-        
+
         This method should be implemented by each experiment to define its
-        specific target variables.
-        
-        Returns:
-            DataFrame containing dependent variables
+        specific target variables. The method should store the result in
+        self.study_data or update it appropriately.
         """
         pass
-    
+
     @abstractmethod
-    def generate_independent_vars(self) -> pd.DataFrame:
+    def generate_independent_vars(self):
         """Generate independent variables (features) for the experiment.
-        
+
         This method should be implemented by each experiment to define its
-        specific feature engineering logic.
-        
-        Returns:
-            DataFrame containing independent variables
+        specific feature engineering logic. The method should update
+        self.study_data with the additional features.
         """
         pass
-    
-    def save_dataset(self, dataset_type: str = "study"):
-        """Save the experiment dataset.
-        
-        Args:
-            dataset_type: Type of dataset to save ("study", "train", "test", etc.)
-        """
-        if self.dependent_vars is None or self.independent_vars is None:
-            raise ValueError("Must generate dependent and independent variables before saving")
-            
-        # Combine features and targets
-        self.study_dataset = pd.concat([
-            self.independent_vars,
-            self.dependent_vars
-        ], axis=1)
-        
-        # Create filename with experiment ID and dataset type
-        filename = f"{self.experiment_id}_{dataset_type}_dataset.csv"
-        filepath = self.output_dir / filename
-        
-        # Save to CSV
-        self.study_dataset.to_csv(filepath, index=False)
-        print(f"Saved {dataset_type} dataset to: {filepath}")
-        
-    def load_dataset(self, dataset_type: str = "study") -> pd.DataFrame:
-        """Load a previously saved experiment dataset.
-        
-        Args:
-            dataset_type: Type of dataset to load ("study", "train", "test", etc.)
-            
-        Returns:
-            The loaded dataset as a DataFrame
-        """
-        filename = f"{self.experiment_id}_{dataset_type}_dataset.csv"
-        filepath = self.output_dir / filename
-        
-        if not filepath.exists():
-            raise FileNotFoundError(f"Dataset not found: {filepath}")
-            
-        return pd.read_csv(filepath)
-    
+
     @abstractmethod
     def run_eda(self):
         """Run exploratory data analysis on the dataset.
-        
+
         This method should be implemented by each experiment to define its
         specific EDA requirements.
         """
         pass
-    
-    def validate_dataset(self) -> bool:
-        """Validate the final dataset meets requirements.
-        
-        Returns:
-            True if validation passes
-        """
-        if self.study_dataset is None:
-            raise ValueError("No dataset available to validate")
-            
-        # Basic validation checks
-        if len(self.study_dataset) == 0:
-            return False
-            
-        # Check for any missing values
-        if self.study_dataset.isnull().any().any():
-            print("Warning: Dataset contains missing values")
-            
-        return True 

@@ -1,96 +1,104 @@
-"""RT Settlement Point Prices ETL client."""
+"""Real-Time Settlement Point Prices ETL client."""
 
 from typing import Optional
+
 import pandas as pd
-from etl.ercot.ercot_etl import ERCOTBaseETL
+
+from src.etl.ercot.ercot_etl import ERCOTBaseETL
 
 
 class RTSettlementPointPricesETL(ERCOTBaseETL):
     """
     ETL client for ERCOT RT Settlement Point Prices data.
-    
+
     Note:
     RT Settlement Point Prices represent the Real-Time Market prices
     at various settlement points including Load Zones (LZ_) and Hubs (HB_).
     Data is provided in 15-minute intervals.
-    
+
     Settlement Point Types:
     - HU: Hub (individual hub prices)
     - SH: Settlement Hub (bus average prices)
     - AH: Aggregate Hub (hub average prices)
     - LZ: Load Zone
-    
+
     Important Note on Unique Keys:
     A settlement point is uniquely identified by the combination of:
     - Settlement Point Name (e.g., "LZ_HOUSTON" or "HB_NORTH")
     - Settlement Point Type (e.g., "LZ" or "HU")
-    
+
     While in practice certain settlement points may only have one type
     (e.g., each HB_ point might only appear with type "HU"), we treat
     all points uniformly and use the combination of name + type as the
     unique identifier. This simplifies processing and makes the code
     more robust to potential data changes.
-    
+
     See: https://www.ercot.com/mp/data-products/data-product-details?id=NP6-905-CD
     """
-    
+
     ENDPOINT_KEY = "rt_spp"
-    
+
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean RT Settlement Point Prices data.
-        
+
         Cleaning steps:
         1. Filter for Load Zones and Hubs by name prefix
         2. Sort by utc timestamp, location, type, hour, and interval
         3. Rename columns to standard format
-        
+
         Args:
             df (pd.DataFrame): Raw DataFrame to clean
-            
+
         Returns:
             pd.DataFrame: Cleaned DataFrame with one row per 15-minute interval per location
         """
         # Make a copy to avoid chained assignment warnings
         df = df.copy()
-        
+
         # Filter for Load Zones and Hubs by name prefix only
         mask = df["settlementPoint"].str.startswith(("LZ_", "HB_"))
         df = df.loc[mask].copy()
-        
+
         # Select columns before renaming
-        df_clean = df[[
-            "utc_ts",
-            "local_ts",
-            "settlementPoint",
-            "settlementPointType",
-            "deliveryHour",
-            "deliveryInterval",
-            "settlementPointPrice",
-            "DSTFlag"
-        ]].copy()
-        
+        df_clean = df[
+            [
+                "utc_ts",
+                "local_ts",
+                "settlementPoint",
+                "settlementPointType",
+                "deliveryHour",
+                "deliveryInterval",
+                "settlementPointPrice",
+                "DSTFlag",
+            ]
+        ].copy()
+
         # Sort by utc timestamp, settlement point, type, hour, and interval
-        df_clean = df_clean.sort_values([
-            "utc_ts",
-            "settlementPoint",
-            "settlementPointType",
-            "deliveryHour",
-            "deliveryInterval"
-        ])
-        
+        df_clean = df_clean.sort_values(
+            [
+                "utc_ts",
+                "settlementPoint",
+                "settlementPointType",
+                "deliveryHour",
+                "deliveryInterval",
+            ]
+        )
+
         # Rename columns to standard format (matching DAM clients)
-        df_clean = df_clean.rename(columns={
-            "settlementPoint": "location",
-            "settlementPointType": "location_type",
-            "settlementPointPrice": "price",
-            "DSTFlag": "dst_flag"
-        })
-        
+        df_clean = df_clean.rename(
+            columns={
+                "settlementPoint": "location",
+                "settlementPointType": "location_type",
+                "settlementPointPrice": "price",
+                "DSTFlag": "dst_flag",
+            }
+        )
+
         return df_clean
-    
+
     def transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Transform cleaned RT Settlement Point Prices data to hourly statistics.
-        
+
         Transformation steps:
         1. Create hourly_utc_ts by truncating utc_ts to hour
         2. Create hourly local timestamp by truncating to hour while preserving timezone
@@ -100,13 +108,13 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         6. Round statistics to 6 decimal places
         7. Sort by utc timestamp, location, and type
         8. Reorder columns appropriately
-        
+
         Note: Each hour has 4 intervals with different timestamps
         (e.g., 01:00, 01:15, 01:30, 01:45). We truncate to hour to group these.
-        
+
         Args:
             df (pd.DataFrame): Cleaned DataFrame with 15-minute interval data
-            
+
         Returns:
             pd.DataFrame: Transformed DataFrame with hourly price statistics
         """
@@ -115,7 +123,7 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
 
         # Drop dst_flag column
         df = df.drop(columns=["dst_flag"])
-        
+
         # Create hourly utc timestamp by truncating to hour
         df.loc[:, "hour_utc_ts"] = df["utc_ts"].dt.floor("h")
 
@@ -124,15 +132,19 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
         df.loc[:, "hour_local_ts"] = df["local_ts"].apply(lambda ts: ts.floor("h"))
 
         # Group by hour_utc_ts, location, and type
-        df_hourly = df.groupby([
-            "hour_utc_ts",
-            "hour_local_ts",
-            "location",
-            "location_type",
-        ]).agg({
-            "price": ["mean", "std"]
-        }).reset_index()
-        
+        df_hourly = (
+            df.groupby(
+                [
+                    "hour_utc_ts",
+                    "hour_local_ts",
+                    "location",
+                    "location_type",
+                ]
+            )
+            .agg({"price": ["mean", "std"]})
+            .reset_index()
+        )
+
         # Flatten multi-level columns and rename
         df_hourly.columns = [
             "utc_ts",
@@ -140,73 +152,78 @@ class RTSettlementPointPricesETL(ERCOTBaseETL):
             "location",
             "location_type",
             "price_mean",
-            "price_std"
+            "price_std",
         ]
 
         # Round the statistics to 6 decimal places
         df_hourly.loc[:, "price_mean"] = df_hourly["price_mean"].round(6)
         df_hourly.loc[:, "price_std"] = df_hourly["price_std"].round(6)
-        
+
         # Sort by utc timestamp, location, and type
-        df_hourly = df_hourly.sort_values([
-            "utc_ts",
-            "location",
-            "location_type"
-        ])
+        df_hourly = df_hourly.sort_values(["utc_ts", "location", "location_type"])
 
         # Create hour_local column by extracting hour from hour_local_ts, but by applying
         # on a row by row basis.  Needed due to mixed timezones in local_ts.
         df_hourly.loc[:, "hour_local"] = df_hourly["local_ts"].apply(lambda ts: ts.hour)
 
         # Reorder columns to match other clients
-        df_hourly = df_hourly[[
-            "utc_ts",
-            "local_ts",
-            "hour_local",
-            "location",
-            "location_type",
-            "price_mean",
-            "price_std",
-        ]]
+        df_hourly = df_hourly[
+            [
+                "utc_ts",
+                "local_ts",
+                "hour_local",
+                "location",
+                "location_type",
+                "price_mean",
+                "price_std",
+            ]
+        ]
 
         return df_hourly
-    
+
     def validate_data(self, df: pd.DataFrame) -> bool:
         """Validate cleaned RT Settlement Point Prices data.
-        
+
         Simple validation for development - assumes data types are correct
         since we control the entire pipeline.
-        
+
         Args:
             df (pd.DataFrame): Cleaned DataFrame to validate
-            
+
         Returns:
             bool: True if validation passes
         """
         try:
             # Check for missing values in key columns
-            if df[["utc_ts", "location", "location_type", "price"]].isnull().any().any():
+            if (
+                df[["utc_ts", "location", "location_type", "price"]]
+                .isnull()
+                .any()
+                .any()
+            ):
                 print("Error: Found missing values in key columns")
                 return False
-            
+
             # Check location format
-            invalid_locations = df[~df["location"].str.startswith(("LZ_", "HB_"))]["location"].unique()
+            invalid_locations = df[~df["location"].str.startswith(("LZ_", "HB_"))][
+                "location"
+            ].unique()
             if len(invalid_locations) > 0:
                 print(f"Error: Found invalid settlement points: {invalid_locations}")
                 return False
-            
+
             # Check location type is not empty
             if df["location_type"].isna().any() or (df["location_type"] == "").any():
                 print("Error: Found empty or missing location types")
                 return False
-            
+
             # Basic row count check
             if len(df) == 0:
                 print("Error: No data after cleaning")
                 return False
-            
+
             return True
-            
+
         except Exception as e:
             print(f"Validation error: {str(e)}")
-            return False 
+            return False

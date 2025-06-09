@@ -1,15 +1,16 @@
 """Script for fetching raw ERCOT data from public API endpoints."""
 
-from datetime import datetime, timedelta
-from data.ercot.clients.load import LoadForecastClient
-from data.ercot.clients.solar import SolarGenerationClient
-from data.ercot.clients.wind import WindGenerationClient
-from data.ercot.clients.dam_spp import DAMSettlementPointPricesClient
-from data.ercot.clients.dam_lambda import DAMSystemLambdaClient
-from data.ercot.clients.rt_spp import RTSettlementPointPricesClient
-
 import os
 import time
+from datetime import datetime
+from datetime import timedelta
+
+from src.data.ercot.clients.dam_lambda import DAMSystemLambdaClient
+from src.data.ercot.clients.dam_spp import DAMSettlementPointPricesClient
+from src.data.ercot.clients.load import LoadForecastClient
+from src.data.ercot.clients.rt_spp import RTSettlementPointPricesClient
+from src.data.ercot.clients.solar import SolarGenerationClient
+from src.data.ercot.clients.wind import WindGenerationClient
 
 
 def main():
@@ -53,7 +54,9 @@ def main():
     #
     if fetch_rt_spp_data:
         print("\n ** Fetching Real-Time Settlement Point Prices...")
-        rt_spp_client = RTSettlementPointPricesClient(output_dir=output_dir, db_path=db_path)
+        rt_spp_client = RTSettlementPointPricesClient(
+            output_dir=output_dir, db_path=db_path
+        )
         rt_spp_df = rt_spp_client.get_rt_spp_data(
             delivery_date_from=start_date,
             delivery_date_to=end_date,
@@ -66,24 +69,26 @@ def main():
 
     if fetch_dam_lambda_data:
         print("\n ** Fetching DAM System Lambda...")
-        dam_lambda_client = DAMSystemLambdaClient(output_dir=output_dir, db_path=db_path)
+        dam_lambda_client = DAMSystemLambdaClient(
+            output_dir=output_dir, db_path=db_path
+        )
         dam_lambda_df = dam_lambda_client.get_dam_lambda_data(
             delivery_date_from=start_date,
             delivery_date_to=end_date,
         )
         print(f"DAM System Lambda records: {len(dam_lambda_df)}")
-    
+
     # Specify the delivery date range for DAM data
     if fetch_dam_spp_data:
         print("\n ** Fetching DAM Settlement Point Prices...")
-        dam_spp_client = DAMSettlementPointPricesClient(output_dir=output_dir, db_path=db_path)
+        dam_spp_client = DAMSettlementPointPricesClient(
+            output_dir=output_dir, db_path=db_path
+        )
         dam_spp_df = dam_spp_client.get_dam_spp_data(
             delivery_date_from=start_date,
             delivery_date_to=end_date,
         )
         print(f"DAM Settlement Point Price records: {len(dam_spp_df)}")
-
-
 
     #
     # Fetch data for a particular hour from reports generated hourly
@@ -94,17 +99,17 @@ def main():
         load_df = load_client.get_load_forecast_data(
             posted_datetime_from=start_date,
             posted_datetime_to=end_date,
-            posted_hour_ending=hour_ending
+            posted_hour_ending=hour_ending,
         )
         print(f"Load forecast records: {len(load_df)}")
-    
+
     if fetch_solar_data:
         print("\n ** Fetching solar generation data...")
         solar_client = SolarGenerationClient(output_dir=output_dir, db_path=db_path)
         solar_df = solar_client.get_solar_generation_data(
             posted_datetime_from=start_date,
             posted_datetime_to=end_date,
-            posted_hour_ending=hour_ending
+            posted_hour_ending=hour_ending,
         )
         print(f"Solar generation records: {len(solar_df)}")
 
@@ -114,12 +119,10 @@ def main():
         wind_df = wind_client.get_wind_generation_data(
             posted_datetime_from=start_date,
             posted_datetime_to=end_date,
-            posted_hour_ending=hour_ending
+            posted_hour_ending=hour_ending,
         )
         print(f"Wind generation records: {len(wind_df)}")
 
-
-    
     print("\nData collection complete!")
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

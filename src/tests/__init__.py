@@ -1,1 +1,1 @@
-"""Test package for ERCOT data analysis.""" 
+"""Test package for ERCOT data analysis."""

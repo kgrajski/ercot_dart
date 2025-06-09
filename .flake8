@@ -1,0 +1,24 @@
+[flake8]
+max-line-length = 88
+extend-ignore = 
+    # Black compatibility
+    E203,  # whitespace before ':'
+    E501,  # line too long (handled by Black)
+    W503,  # line break before binary operator
+    # Import-related ignores for common patterns
+    F401,  # imported but unused (we'll fix these separately)
+    F403,  # star imports
+    F405,  # may be undefined from star imports
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    .env,
+    build,
+    dist,
+    *.egg-info
+per-file-ignores =
+    # Allow star imports in __init__.py files
+    __init__.py:F401,F403,F405
+    # Allow unused imports in __init__.py files
+    */__init__.py:F401,F403,F405 

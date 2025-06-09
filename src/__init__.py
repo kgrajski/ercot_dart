@@ -1,5 +1,6 @@
 """Source package initialization."""
 
-from .data import LoadForecastClient, SolarGenerationClient
+from src.data import LoadForecastClient
+from src.data import SolarGenerationClient
 
 __all__ = ["LoadForecastClient", "SolarGenerationClient"]

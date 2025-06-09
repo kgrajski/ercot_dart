@@ -1,5 +1,5 @@
 """ERCOT experiment 0 feature generation package."""
 
-from .dataset import Exp0Dataset
+from src.features.ercot.exp0.dataset import Exp0Dataset
 
-__all__ = ["Exp0Dataset"] 
+__all__ = ["Exp0Dataset"]

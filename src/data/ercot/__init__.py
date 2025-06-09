@@ -5,15 +5,15 @@ This package provides a Python interface to the ERCOT (Electric Reliability Coun
 It handles authentication, rate limiting, and data retrieval for various ERCOT endpoints.
 """
 
-from .auth import ERCOTAuth
-from .api import ERCOTApi
-from .processors import ERCOTProcessor
-from .ercot_data import ERCOTBaseClient
-from .clients.load import LoadForecastClient
-from .clients.solar import SolarGenerationClient
-from .clients.wind import WindGenerationClient
-from .clients.dam_spp import DAMSettlementPointPricesClient
-from .clients.dam_lambda import DAMSystemLambdaClient
+from src.data.ercot.api import ERCOTApi
+from src.data.ercot.auth import ERCOTAuth
+from src.data.ercot.clients.dam_lambda import DAMSystemLambdaClient
+from src.data.ercot.clients.dam_spp import DAMSettlementPointPricesClient
+from src.data.ercot.clients.load import LoadForecastClient
+from src.data.ercot.clients.solar import SolarGenerationClient
+from src.data.ercot.clients.wind import WindGenerationClient
+from src.data.ercot.ercot_data import ERCOTBaseClient
+from src.data.ercot.processors import ERCOTProcessor
 
 __all__ = [
     "ERCOTAuth",
@@ -25,4 +25,4 @@ __all__ = [
     "WindGenerationClient",
     "DAMSettlementPointPricesClient",
     "DAMSystemLambdaClient",
-] 
+]

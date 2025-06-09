@@ -1,4 +1,90 @@
-# ercot_dart
+# ERCOT DART Price Prediction
+
+## 🚨 IMPORTANT: Import Standards
+
+**All internal imports MUST use absolute paths with `src.` prefix:**
+
+```python
+# ✅ CORRECT
+from src.data.ercot.clients.load import LoadForecastClient
+from src.visualization.ercot.ercot_viz import ERCOTBaseViz
+
+# ❌ WRONG
+from data.ercot.clients.load import LoadForecastClient  # Missing src.
+from .clients.load import LoadForecastClient            # Relative import
+```
+
+See `CODING_STANDARDS.md` for complete details.
+
+**Check compliance:** `python scripts/check_imports.py src/**/*.py`
+
+---
+
+## Project Overview
+
+ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market.
+
+## Quick Start
+
+1. **Install dependencies:**
+   ```bash
+   pip install -e .
+   ```
+
+2. **Set up environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your ERCOT API credentials
+   ```
+
+3. **Run data collection:**
+   ```bash
+   python src/workflow/00-kag-get-ercot-raw-data.py
+   ```
+
+## Development Setup
+
+1. **Install development dependencies:**
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+2. **Set up pre-commit hooks:**
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+
+3. **Check import compliance:**
+   ```bash
+   python scripts/check_imports.py src/**/*.py
+   ```
+
+## Project Structure
+
+```
+ercot_dart/
+├── src/                    # All source code
+│   ├── data/              # Data collection clients
+│   ├── etl/               # Data processing
+│   ├── features/          # Feature engineering  
+│   ├── models/            # ML models
+│   ├── visualization/     # Plotting and analysis
+│   └── workflow/          # End-to-end scripts
+├── tests/                 # Unit tests
+├── data/                  # Data storage
+├── scripts/               # Utility scripts
+└── docs/                  # Documentation
+```
+
+## Coding Standards
+
+- **Imports**: Always use `src.` prefix for internal modules
+- **Formatting**: Use `black` for code formatting
+- **Linting**: Follow `flake8` guidelines
+- **Testing**: Write tests for new functionality
+
+For complete standards, see `CODING_STANDARDS.md`.
 
 ## Wholesale Energy Markets Data Exploration
 ## ERCOT Real-Time vs DAM Settlement Point Prices (DART) Using LZ (Houston) as an Example
