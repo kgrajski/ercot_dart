@@ -51,6 +51,43 @@ ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electrici
    python src/workflow/04-kag-exp0-modeling.py
    ```
 
+> **⚠️ Note**: The workflow scripts currently contain hardcoded paths and may need adjustment for your system. See [Testing Instructions](#testing-instructions) below.
+
+### Testing Instructions
+
+To test the Quick Start instructions from scratch:
+
+1. **Create a test environment:**
+   ```bash
+   # In a new directory
+   python -m venv test_env
+   source test_env/bin/activate  # On Windows: test_env\Scripts\activate
+   
+   # Clone and install
+   git clone <repository-url>
+   cd ercot_dart
+   pip install -e .
+   ```
+
+2. **Check import compliance:**
+   ```bash
+   python scripts/check_imports.py src/**/*.py
+   ```
+
+3. **Test individual components:**
+   ```bash
+   # Test data client imports
+   python -c "from src.data.ercot.clients.rt_spp import RTSettlementPointPricesClient; print('Data clients OK')"
+   
+   # Test visualization imports
+   python -c "from src.features.ercot.visualization import plot_dart_distributions; print('Visualization OK')"
+   ```
+
+4. **Verify dependencies:**
+   ```bash
+   python -c "import pandas, numpy, plotly, holidays, scipy; print('All dependencies installed')"
+   ```
+
 ### Quick Analysis
 For a quick start with existing data, run:
 ```bash
