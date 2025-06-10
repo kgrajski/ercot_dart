@@ -1,64 +1,63 @@
 # ERCOT DART Price Prediction
 
-## 🚨 IMPORTANT: Import Standards
-
-**All internal imports MUST use absolute paths with `src.` prefix:**
-
-```python
-# ✅ CORRECT
-from src.data.ercot.clients.load import LoadForecastClient
-from src.visualization.ercot.ercot_viz import ERCOTBaseViz
-
-# ❌ WRONG
-from data.ercot.clients.load import LoadForecastClient  # Missing src.
-from .clients.load import LoadForecastClient            # Relative import
-```
-
-See `CODING_STANDARDS.md` for complete details.
-
-**Check compliance:** `python scripts/check_imports.py src/**/*.py`
-
----
-
 ## Project Overview
 
-ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market.
+ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market. This project analyzes and predicts the differences between day-ahead market (DAM) and real-time market (RTM) settlement prices in ERCOT, helping market participants understand price dynamics and make informed trading decisions.
+
+**Key Features:**
+- Historical ERCOT price data collection via official API
+- Comprehensive exploratory data analysis of DART patterns
+- Time series feature engineering for price prediction
+- Machine learning models for DART forecasting
+- Rich visualization suite for market analysis
 
 ## Quick Start
 
-1. **Install dependencies:**
+### Prerequisites
+- Python 3.8+
+- ERCOT API credentials (free registration at [ERCOT.com](https://www.ercot.com/mp/data-products))
+
+### Installation
+
+1. **Clone and install:**
    ```bash
+   git clone <repository-url>
+   cd ercot_dart
    pip install -e .
    ```
 
-2. **Set up environment:**
+2. **Set up environment variables:**
    ```bash
-   cp .env.example .env
-   # Edit .env with your ERCOT API credentials
+   # Create .env file with your ERCOT API credentials
+   echo "ERCOT_API_USERNAME=your_username" > .env
+   echo "ERCOT_API_PASSWORD=your_password" >> .env
    ```
 
-3. **Run data collection:**
+3. **Run the complete data pipeline:**
    ```bash
+   # Step 1: Collect raw ERCOT data
    python src/workflow/00-kag-get-ercot-raw-data.py
+   
+   # Step 2: Generate visualizations
+   python src/workflow/01-kag-visualize-ercot-raw-data.py
+   
+   # Step 3: Transform and prepare data
+   python src/workflow/02-kag-transform-ercot-data.py
+   
+   # Step 4: Create study dataset
+   python src/workflow/03-kag-exp0-ercot-study-dataset.py
+   
+   # Step 5: Run modeling experiment
+   python src/workflow/04-kag-exp0-modeling.py
    ```
 
-## Development Setup
+### Quick Analysis
+For a quick start with existing data, run:
+```bash
+python src/workflow/01-kag-visualize-ercot-raw-data.py
+```
 
-1. **Install development dependencies:**
-   ```bash
-   pip install -e ".[dev]"
-   ```
-
-2. **Set up pre-commit hooks:**
-   ```bash
-   pip install pre-commit
-   pre-commit install
-   ```
-
-3. **Check import compliance:**
-   ```bash
-   python scripts/check_imports.py src/**/*.py
-   ```
+This will generate comprehensive DART analysis plots in the `reports/figures/` directory.
 
 ## Project Structure
 
@@ -73,18 +72,45 @@ ercot_dart/
 │   └── workflow/          # End-to-end scripts
 ├── tests/                 # Unit tests
 ├── data/                  # Data storage
+├── config/                # Experiment configurations
+├── reports/               # Generated analysis reports
 ├── scripts/               # Utility scripts
 └── docs/                  # Documentation
 ```
 
-## Coding Standards
+## Development Setup
 
-- **Imports**: Always use `src.` prefix for internal modules
-- **Formatting**: Use `black` for code formatting
-- **Linting**: Follow `flake8` guidelines
-- **Testing**: Write tests for new functionality
+### Install Development Dependencies
+```bash
+pip install -e ".[dev]"
+```
 
-For complete standards, see `CODING_STANDARDS.md`.
+### Set Up Pre-commit Hooks
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+### Coding Standards
+
+**⚠️ Important**: All internal imports must use absolute paths with `src.` prefix:
+
+```python
+# ✅ CORRECT
+from src.data.ercot.clients.load import LoadForecastClient
+from src.visualization.ercot.ercot_viz import ERCOTBaseViz
+
+# ❌ WRONG
+from data.ercot.clients.load import LoadForecastClient  # Missing src.
+from .clients.load import LoadForecastClient            # Relative import
+```
+
+**Check compliance:**
+```bash
+python scripts/check_imports.py src/**/*.py
+```
+
+For complete coding standards, see `CODING_STANDARDS.md`.
 
 ## Wholesale Energy Markets Data Exploration
 ## ERCOT Real-Time vs DAM Settlement Point Prices (DART) Using LZ (Houston) as an Example
