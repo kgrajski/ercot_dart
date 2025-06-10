@@ -4,12 +4,12 @@ import os
 import time
 from datetime import datetime
 
-from src.visualization.ercot.clients.dam_lambda import DAMSystemLambdaViz
-from src.visualization.ercot.clients.dam_spp import DAMSettlementPointPricesViz
-from src.visualization.ercot.clients.load import LoadForecastViz
-from src.visualization.ercot.clients.rt_spp import RTSettlementPointPricesViz
-from src.visualization.ercot.clients.solar import SolarGenerationViz
-from src.visualization.ercot.clients.wind import WindGenerationViz
+from src.visualization.ercot.clients import DAMSettlementPointPricesViz
+from src.visualization.ercot.clients import DAMSystemLambdaViz
+from src.visualization.ercot.clients import LoadForecastViz
+from src.visualization.ercot.clients import RTSettlementPointPricesViz
+from src.visualization.ercot.clients import SolarGenerationViz
+from src.visualization.ercot.clients import WindGenerationViz
 
 
 def main():

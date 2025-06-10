@@ -17,13 +17,33 @@ For endpoints with sub-hourly data (e.g., RT SPP's 15-minute intervals):
 - Custom processing may be needed by specific clients
 """
 
+import logging
+import os
 import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
+from typing import Tuple
+from typing import Union
 
 import pandas as pd
+import requests
 from tqdm import tqdm
+
+# Custom logger configuration
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Suppress tqdm output in logging
+logging.getLogger("tqdm").setLevel(logging.WARNING)
+
+# Third-party imports
+import warnings
 
 from src.data.ercot.api import ERCOTApi
 from src.data.ercot.auth import ERCOTAuth

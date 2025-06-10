@@ -5,12 +5,12 @@ import time
 from datetime import datetime
 from datetime import timedelta
 
-from src.data.ercot.clients.dam_lambda import DAMSystemLambdaClient
-from src.data.ercot.clients.dam_spp import DAMSettlementPointPricesClient
-from src.data.ercot.clients.load import LoadForecastClient
-from src.data.ercot.clients.rt_spp import RTSettlementPointPricesClient
-from src.data.ercot.clients.solar import SolarGenerationClient
-from src.data.ercot.clients.wind import WindGenerationClient
+from src.data.ercot.clients import DAMSettlementPointPricesClient
+from src.data.ercot.clients import DAMSystemLambdaClient
+from src.data.ercot.clients import LoadForecastClient
+from src.data.ercot.clients import RTSettlementPointPricesClient
+from src.data.ercot.clients import SolarGenerationClient
+from src.data.ercot.clients import WindGenerationClient
 
 
 def main():

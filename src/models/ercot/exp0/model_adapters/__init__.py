@@ -1,14 +1,10 @@
 """
-Model Adapters for ERCOT DART Modeling
+Model adapters for Experiment 0.
 
-This module provides a unified interface for different model types through
-the adapter pattern. Each model type (linear, tree-based, neural networks)
-implements the same interface for consistent training and evaluation.
-
-The adapter pattern allows easy swapping between different model types
-while maintaining the same training pipeline.
+This package provides unified interfaces for different ML models.
 """
 
+# Export all model adapters
 from src.models.ercot.exp0.model_adapters.base_adapter import BaseModelAdapter
 from src.models.ercot.exp0.model_adapters.linear_models import LinearModelAdapter
 from src.models.ercot.exp0.model_adapters.tree_models import TreeModelAdapter
