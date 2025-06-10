@@ -1,8 +1,16 @@
 """Script for creating the study dataset for experiment 0."""
 
 import os
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+# Add project root to Python path for direct script execution
+# This allows the script to work with both "Run Python File" and "python -m" approaches
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from src.features.ercot.exp0 import Exp0Dataset
 
@@ -10,7 +18,7 @@ from src.features.ercot.exp0 import Exp0Dataset
 def main():
     """Main function for preparing the experiment 0 study dataset."""
 
-    script_name = "03-kag-exp0-study-dataset"
+    script_name = "03-kag-exp0-ercot-study-dataset"
     start_time = time.perf_counter()
     print("*** " + script_name + " - START ***")
 
@@ -52,6 +60,9 @@ def main():
 
     print("\nRunning exploratory data analysis...")
     exp0.run_eda()
+
+    print("\nFinalizing study dataset...")
+    exp0.finalize_study_dataset()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

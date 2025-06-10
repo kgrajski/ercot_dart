@@ -25,6 +25,7 @@ from src.features.ercot.visualization import plot_dart_slt_sign_daily_heatmap
 from src.features.ercot.visualization import plot_dart_slt_sign_power_spectrum
 from src.features.ercot.visualization import plot_dart_slt_sign_transitions
 from src.features.ercot.visualization import plot_dart_slt_spectrogram
+from src.features.ercot.visualization import plot_dart_slt_vs_features_by_hour
 from src.features.utils import signed_log_transform
 
 
@@ -61,6 +62,70 @@ class Exp0Dataset(ExpDataset):
             experiment_id="exp0",
         )
 
+        # Experiment configuration
+        self.experiment_name = "exp0"
+        self.experiment_description = (
+            "Baseline DART price prediction using lagged and rolling features"
+        )
+
+        # Feature configuration for this experiment
+        self.lag_hours = [1, 2, 24, 168]  # 1 hour, 2 hours, 1 day, 1 week
+        self.roll_hours = [24, 168]  # 1 day, 1 week
+
+        # Variable definitions
+        self.dependent_vars = ["dart_slt"]  # Target variables for modeling
+        self.source_price_columns = {
+            "rt_price": "price_mean",  # RT SPP price column name
+            "dam_price": "price",  # DAM SPP price column name
+        }
+        self.target_variables = {
+            "dart": "rt_spp_price - dam_spp_price",  # Raw price difference
+            "dart_slt": "signed_log_transform(dart)",  # Transformed target
+        }
+
+        # Validation parameters
+        self.null_check_days_threshold = 1  # Flag nulls occurring after day N
+        self.temporal_completeness_hours = 24  # Expected hours per day
+
+        # Naming patterns
+        self.dataset_prefix = f"{self.experiment_name}_study_dataset"
+        self.final_dataset_prefix = f"{self.experiment_name}_final_dataset"
+        self.db_table_prefix = self.experiment_name
+
+    @property
+    def independent_vars(self) -> list:
+        """Get list of independent variable column names.
+
+        Returns:
+            list: Column names for all independent variables
+        """
+        vars_list = []
+
+        # Add lagged features
+        for lag_h in self.lag_hours:
+            vars_list.append(f"dart_slt_lag_{lag_h}hr")
+
+        # Add rolling statistics features
+        for roll_h in self.roll_hours:
+            vars_list.extend(
+                [f"dart_slt_roll_mean_{roll_h}hr", f"dart_slt_roll_sdev_{roll_h}hr"]
+            )
+
+        return vars_list
+
+    @property
+    def all_model_variables(self) -> dict:
+        """Get all variables for modeling.
+
+        Returns:
+            dict: Dictionary with 'dependent', 'independent', and 'all' variable lists
+        """
+        return {
+            "dependent": self.dependent_vars,
+            "independent": self.independent_vars,
+            "all": self.dependent_vars + self.independent_vars,
+        }
+
     def generate_dependent_vars(self):
         """Generate dependent variables for Exp0.
 
@@ -92,10 +157,14 @@ class Exp0Dataset(ExpDataset):
         )
 
         # Rename the DAM price column for clarity
-        result_df = result_df.rename(columns={"price": "dam_spp_price"})
+        result_df = result_df.rename(
+            columns={self.source_price_columns["dam_price"]: "dam_spp_price"}
+        )
 
         # Rename the RT price column for clarity
-        result_df = result_df.rename(columns={"price_mean": "rt_spp_price"})
+        result_df = result_df.rename(
+            columns={self.source_price_columns["rt_price"]: "rt_spp_price"}
+        )
 
         # Calculate DART (RT - DAM difference)
         result_df["dart"] = (
@@ -105,34 +174,7 @@ class Exp0Dataset(ExpDataset):
         # Apply signed log transformation (single source of truth)
         result_df["dart_slt"] = signed_log_transform(result_df["dart"])
 
-        # Create day of week from local_ts (business time) using apply for mixed timezone handling
-        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
-        result_df["day_of_week"] = result_df["local_ts"].apply(
-            lambda x: pd.to_datetime(x).dayofweek if pd.notna(x) else None
-        )
-
-        # Create hour of day from local_ts (business time) using apply for mixed timezone handling
-        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
-        # Add one hour so that the interpretation is consistent with ERCOT hour means end of delivery hour
-        result_df["end_of_hour"] = result_df["local_ts"].apply(
-            lambda x: pd.to_datetime(x).hour + 1 if pd.notna(x) else None
-        )
-
-        # Create weekend flag (Saturday=5, Sunday=6 in pandas dayofweek)
-        result_df["is_weekend"] = result_df["day_of_week"].apply(
-            lambda x: x >= 5 if pd.notna(x) else None
-        )
-
-        # Create holiday flag for US Federal and Texas State holidays
-        # Initialize holiday calendar that includes both US federal and Texas state holidays
-        us_holidays = holidays.UnitedStates(state="TX", years=range(2015, 2030))
-
-        # Create holiday flag based on local date (not time)
-        result_df["is_holiday"] = result_df["local_ts"].apply(
-            lambda x: pd.to_datetime(x).date() in us_holidays if pd.notna(x) else None
-        )
-
-        # Store the result in the study_data attribute
+        # Store the result
         self.study_data = result_df
 
         # Write the result_df to a csv file, but with the name exp0_study_dataset.csv
@@ -168,7 +210,12 @@ class Exp0Dataset(ExpDataset):
         return safe_identifier
 
     def _generate_independent_vars_single(
-        self, df_single: pd.DataFrame, location: str, location_type: str
+        self,
+        df_single: pd.DataFrame,
+        location: str,
+        location_type: str,
+        lag_hours: list,
+        roll_hours: list,
     ) -> pd.DataFrame:
         """Generate independent variables for a single location+location_type combination.
 
@@ -176,6 +223,8 @@ class Exp0Dataset(ExpDataset):
             df_single: DataFrame for single location+location_type, assumed to be sorted by utc_ts
             location: Location name
             location_type: Location type
+            lag_hours: List of lag hours to create features for
+            roll_hours: List of rolling window hours to create features for
 
         Returns:
             pd.DataFrame: DataFrame with added independent variable features
@@ -187,15 +236,11 @@ class Exp0Dataset(ExpDataset):
         df = df.sort_values("utc_ts").reset_index(drop=True)
 
         # Create lagged features (simple since we're processing single entity)
-        lag_hours = [1, 2, 24, 168]  # 1 hour, 2 hours, 1 day, 1 week
-
         for lag_h in lag_hours:
             col_name = f"dart_slt_lag_{lag_h}hr"
             df[col_name] = df["dart_slt"].shift(lag_h)
 
         # Create rolling statistics (simple since we're processing single entity)
-        roll_hours = [24, 168]  # 1 day, 1 week
-
         for roll_h in roll_hours:
             # Rolling mean
             roll_mean_col = f"dart_slt_roll_mean_{roll_h}hr"
@@ -241,6 +286,47 @@ class Exp0Dataset(ExpDataset):
 
         print("Processing independent variables by location+location_type...")
 
+        # =====================================================================
+        # Location-independent feature transformations
+        # These transformations can be applied to each row independently
+        # =====================================================================
+
+        # Create day of week from local_ts (business time) using apply for mixed timezone handling
+        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
+        self.study_data["day_of_week"] = self.study_data["local_ts"].apply(
+            lambda x: pd.to_datetime(x).dayofweek if pd.notna(x) else None
+        )
+
+        # Create hour of day from local_ts (business time) using apply for mixed timezone handling
+        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
+        # Add one hour so that the interpretation is consistent with ERCOT hour means end of delivery hour
+        self.study_data["end_of_hour"] = self.study_data["local_ts"].apply(
+            lambda x: pd.to_datetime(x).hour + 1 if pd.notna(x) else None
+        )
+
+        # Create weekend flag (Saturday=5, Sunday=6 in pandas dayofweek)
+        self.study_data["is_weekend"] = self.study_data["day_of_week"].apply(
+            lambda x: x >= 5 if pd.notna(x) else None
+        )
+
+        # Create holiday flag for US Federal and Texas State holidays
+        # Initialize holiday calendar that includes both US federal and Texas state holidays
+        us_holidays = holidays.UnitedStates(state="TX", years=range(2015, 2030))
+
+        # Create holiday flag based on local date (not time)
+        self.study_data["is_holiday"] = self.study_data["local_ts"].apply(
+            lambda x: pd.to_datetime(x).date() in us_holidays if pd.notna(x) else None
+        )
+
+        print(
+            "Created location-independent features: day_of_week, end_of_hour, is_weekend, is_holiday"
+        )
+
+        # =====================================================================
+        # Location-dependent feature transformations (lagged and rolling features)
+        # These require processing by location+location_type groups
+        # =====================================================================
+
         # Process each location+location_type combination independently
         results = []
         feature_summaries = []
@@ -250,7 +336,7 @@ class Exp0Dataset(ExpDataset):
         ):
             # Process this single combination
             processed_group = self._generate_independent_vars_single(
-                group, location, location_type
+                group, location, location_type, self.lag_hours, self.roll_hours
             )
             results.append(processed_group)
 
@@ -260,7 +346,7 @@ class Exp0Dataset(ExpDataset):
             location_dir.mkdir(parents=True, exist_ok=True)
 
             # Save this combination's dataset to its own subdirectory
-            dataset_file = location_dir / f"exp0_study_dataset_{safe_id}.csv"
+            dataset_file = location_dir / f"{self.dataset_prefix}_{safe_id}.csv"
             processed_group.to_csv(dataset_file, index=False)
 
             # Collect feature summary for this combination
@@ -286,13 +372,13 @@ class Exp0Dataset(ExpDataset):
 
         # Save combined dataset to main output directory
         self.study_data.to_csv(
-            os.path.join(self.output_dir, "exp0_study_dataset_combined.csv"),
+            os.path.join(self.output_dir, f"{self.dataset_prefix}_combined.csv"),
             index=False,
         )
 
         # Save to database if requested
         # Initialize database processor
-        db_path = self.output_dir / "exp0_study_dataset.db"
+        db_path = self.output_dir / f"{self.dataset_prefix}.db"
         db_processor = DatabaseProcessor(str(db_path))
 
         # Save individual location+location_type datasets to database
@@ -304,11 +390,20 @@ class Exp0Dataset(ExpDataset):
             ]
 
             # Save to database with safe table name
-            table_name = f"exp0_{summary['safe_id']}"
+            table_name = f"{self.db_table_prefix}_{summary['safe_id']}"
             db_processor.save_to_database(location_data, table_name)
 
+        print(
+            f"Saved {len(feature_summaries)} records to {self.db_table_prefix}_{summary['safe_id']} table in {db_path}"
+        )
+
         # Save combined dataset to database
-        db_processor.save_to_database(self.study_data, "exp0_study_dataset_combined")
+        db_processor.save_to_database(
+            self.study_data, f"{self.db_table_prefix}_study_dataset_combined"
+        )
+        print(
+            f"Saved {len(self.study_data)} records to {self.db_table_prefix}_study_dataset_combined table in {db_path}"
+        )
 
         print(f"\nDatabase saved to: {db_path}")
 
@@ -322,20 +417,17 @@ class Exp0Dataset(ExpDataset):
             )
 
         # Print feature completeness statistics
-        lag_hours = [1, 2, 24, 168]
-        roll_hours = [24, 168]
-
         print(f"\nFeature completeness across all combinations:")
         total_records = len(self.study_data)
 
-        for lag_h in lag_hours:
+        for lag_h in self.lag_hours:
             col_name = f"dart_slt_lag_{lag_h}hr"
             non_null_count = self.study_data[col_name].notna().sum()
             print(
                 f"  {col_name}: {non_null_count:,} non-null out of {total_records:,} total ({non_null_count/total_records*100:.1f}%)"
             )
 
-        for roll_h in roll_hours:
+        for roll_h in self.roll_hours:
             for stat in ["mean", "sdev"]:
                 col_name = f"dart_slt_roll_{stat}_{roll_h}hr"
                 non_null_count = self.study_data[col_name].notna().sum()
@@ -454,3 +546,264 @@ class Exp0Dataset(ExpDataset):
         plot_dart_average_daily_heatmap(
             df=self.study_data, output_dir=self.output_dir, title_suffix=" - Exp0"
         )
+
+        # 19. Feature relationship analysis by hour (for modeling stage)
+        plot_dart_slt_vs_features_by_hour(
+            df=self.study_data,
+            output_dir=self.output_dir,
+            dependent_vars=self.dependent_vars,
+            independent_vars=self.independent_vars,
+            title_suffix=" - Exp0",
+        )
+
+    def finalize_study_dataset(self):
+        """Finalize study dataset by cleaning and validating data.
+
+        This method performs sequential cleaning steps:
+        1. Remove rows with null/NaN dependent variables (dart_slt)
+        2. Remove rows with null/NaN independent variables
+        3. Validate temporal completeness for each location+location_type
+        4. Save final clean datasets in both CSV and database formats
+
+        Reports on all cleaning actions taken.
+        """
+        if self.study_data is None:
+            raise ValueError(
+                "No study data available. Run generate_independent_vars() first."
+            )
+
+        print("Finalizing study dataset...")
+
+        # Get configuration from instance variables
+        dependent_vars = self.dependent_vars
+        independent_vars = self.independent_vars
+
+        # Process each location+location_type combination independently
+        final_results = []
+        cleaning_summaries = []
+
+        for (location, location_type), group in self.study_data.groupby(
+            ["location", "location_type"]
+        ):
+            safe_id = self._create_safe_identifier(location, location_type)
+            print(f"\nProcessing {location} [{location_type}]:")
+
+            # Start with the group data
+            df_clean = group.copy().sort_values("utc_ts").reset_index(drop=True)
+            initial_count = len(df_clean)
+
+            # Step 1: Remove rows with null/NaN dependent variables
+            print(f"  Initial records: {initial_count:,}")
+
+            # Check for null dependent variables
+            null_dependent_mask = df_clean[dependent_vars].isnull().any(axis=1)
+            null_dependent_count = null_dependent_mask.sum()
+
+            if null_dependent_count > 0:
+                # Analyze when nulls occur
+                null_rows = df_clean[null_dependent_mask]
+                min_date = df_clean["utc_ts"].min().date()
+
+                # Check if nulls occur after day 1
+                late_nulls = []
+                for _, row in null_rows.iterrows():
+                    row_date = row["utc_ts"].date()
+                    days_from_start = (row_date - min_date).days
+                    if days_from_start >= self.null_check_days_threshold:
+                        late_nulls.append((row["utc_ts"], days_from_start))
+
+                # Report null removals
+                print(
+                    f"  Removing {null_dependent_count:,} rows with null dependent variables"
+                )
+                for _, row in null_rows.iterrows():
+                    print(f"    {row['utc_ts']}: null in {dependent_vars}")
+
+                if late_nulls:
+                    print(
+                        f"  WARNING: {len(late_nulls)} null dependent variables occur after day 1:"
+                    )
+                    for ts, days in late_nulls:
+                        print(f"    {ts} (day {days + 1})")
+
+                # Remove null dependent variables
+                df_clean = df_clean[~null_dependent_mask].reset_index(drop=True)
+
+            # Step 2: Remove rows with null/NaN independent variables
+            null_independent_mask = df_clean[independent_vars].isnull().any(axis=1)
+            null_independent_count = null_independent_mask.sum()
+
+            if null_independent_count > 0:
+                # Report which variables have nulls
+                null_summary = {}
+                for var in independent_vars:
+                    null_count = df_clean[var].isnull().sum()
+                    if null_count > 0:
+                        null_summary[var] = null_count
+
+                print(
+                    f"  Removing {null_independent_count:,} rows with null independent variables:"
+                )
+                for var, count in null_summary.items():
+                    print(f"    {var}: {count:,} nulls")
+
+                # Remove null independent variables
+                df_clean = df_clean[~null_independent_mask].reset_index(drop=True)
+
+            # Step 3: Validate temporal completeness
+            final_count = len(df_clean)
+            print(f"  Final records after cleaning: {final_count:,}")
+
+            temporal_complete = self._validate_temporal_completeness_single(
+                df_clean, location, location_type
+            )
+
+            if not temporal_complete:
+                print(
+                    f"  WARNING: Temporal completeness validation failed for {location} [{location_type}]"
+                )
+
+            # Save individual clean dataset
+            location_dir = self.output_dir / safe_id
+            location_dir.mkdir(parents=True, exist_ok=True)
+
+            final_dataset_file = (
+                location_dir / f"{self.final_dataset_prefix}_{safe_id}.csv"
+            )
+            df_clean.to_csv(final_dataset_file, index=False)
+            print(f"  Saved final dataset: {final_dataset_file}")
+
+            # Collect results
+            final_results.append(df_clean)
+            cleaning_summaries.append(
+                {
+                    "location": location,
+                    "location_type": location_type,
+                    "safe_id": safe_id,
+                    "initial_records": initial_count,
+                    "final_records": final_count,
+                    "removed_dependent_nulls": null_dependent_count,
+                    "removed_independent_nulls": null_independent_count,
+                    "temporal_complete": temporal_complete,
+                }
+            )
+
+        # Combine all final results
+        self.final_study_data = pd.concat(final_results, ignore_index=True)
+        self.final_study_data = self.final_study_data.sort_values(
+            ["location", "location_type", "utc_ts"]
+        ).reset_index(drop=True)
+
+        # Save combined final dataset
+        final_combined_file = (
+            self.output_dir / f"{self.final_dataset_prefix}_combined.csv"
+        )
+        self.final_study_data.to_csv(final_combined_file, index=False)
+        print(f"\nSaved combined final dataset: {final_combined_file}")
+
+        # Save to database
+        db_path = self.output_dir / f"{self.final_dataset_prefix}.db"
+        db_processor = DatabaseProcessor(str(db_path))
+
+        # Save individual location+location_type final datasets to database
+        for summary in cleaning_summaries:
+            location_data = self.final_study_data[
+                (self.final_study_data["location"] == summary["location"])
+                & (self.final_study_data["location_type"] == summary["location_type"])
+            ]
+
+            table_name = f"{self.db_table_prefix}_final_{summary['safe_id']}"
+            db_processor.save_to_database(location_data, table_name)
+
+        # Save combined final dataset to database
+        db_processor.save_to_database(
+            self.final_study_data, f"{self.db_table_prefix}_final_dataset_combined"
+        )
+        print(f"Saved final datasets to database: {db_path}")
+
+        # Print comprehensive summary
+        print(f"\n=== FINAL DATASET SUMMARY ===")
+        total_initial = sum(s["initial_records"] for s in cleaning_summaries)
+        total_final = sum(s["final_records"] for s in cleaning_summaries)
+        total_removed = total_initial - total_final
+
+        print(f"Total initial records: {total_initial:,}")
+        print(f"Total final records: {total_final:,}")
+        print(
+            f"Total removed records: {total_removed:,} ({total_removed/total_initial*100:.1f}%)"
+        )
+
+        print(f"\nPer-location summary:")
+        for summary in cleaning_summaries:
+            removed = summary["initial_records"] - summary["final_records"]
+            removal_pct = (
+                removed / summary["initial_records"] * 100
+                if summary["initial_records"] > 0
+                else 0
+            )
+            status = "✓" if summary["temporal_complete"] else "⚠"
+            print(
+                f"  {summary['location']} [{summary['location_type']}]: "
+                f"{summary['final_records']:,} records ({removed:,} removed, {removal_pct:.1f}%) {status}"
+            )
+
+    def _validate_temporal_completeness_single(
+        self, df: pd.DataFrame, location: str, location_type: str
+    ) -> bool:
+        """Validate temporal completeness for a single location+location_type.
+
+        Args:
+            df: DataFrame for single location+location_type
+            location: Location name
+            location_type: Location type
+
+        Returns:
+            bool: True if temporal completeness validation passes
+        """
+        # Extract date and hour components
+        df_temp = df.copy()
+        df_temp["date"] = df_temp["utc_ts"].dt.date
+        df_temp["hour"] = df_temp["utc_ts"].dt.hour
+
+        # Group by date and count unique hours
+        date_hour_counts = df_temp.groupby("date")["hour"].nunique()
+
+        # Calculate expected vs actual days
+        min_date = min(df_temp["date"])
+        max_date = max(df_temp["date"])
+        expected_days = (max_date - min_date).days + 1
+        actual_days = len(df_temp["date"].unique())
+
+        print(f"    Date range: {min_date} to {max_date}")
+        print(f"    Expected days: {expected_days}, Actual days: {actual_days}")
+
+        if actual_days != expected_days:
+            print(
+                f"    ERROR: Found {actual_days} dates, expected {expected_days} dates"
+            )
+            return False
+
+        # Check if any date has less than 24 hours
+        incomplete_dates = date_hour_counts[date_hour_counts != 24]
+
+        if len(incomplete_dates) > 0:
+            for date, hour_count in incomplete_dates.items():
+                if (date == min_date) or (date == max_date):
+                    print(f"    WARNING: {date}: {hour_count} hours (boundary date)")
+                else:
+                    print(f"    ERROR: {date}: {hour_count} hours (should be 24)")
+                    return False
+
+            # If only boundary dates have issues, still pass
+            non_boundary_incomplete = [
+                date
+                for date in incomplete_dates.index
+                if date != min_date and date != max_date
+            ]
+            if len(non_boundary_incomplete) > 0:
+                return False
+
+        print(
+            f"    Temporal completeness: ✓ {len(date_hour_counts)} dates with proper hourly coverage"
+        )
+        return True

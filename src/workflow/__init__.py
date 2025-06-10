@@ -9,5 +9,5 @@ Scripts:
 - 00-kag-get-ercot-raw-data.py: Data collection from ERCOT API endpoints
 - 01-kag-visualize-ercot-raw-data.py: Initial data visualization
 - 02-kag-transform-ercot-data.py: Data transformation and cleaning
-- 03-kag-exp0-study-dataset.py: Exploratory data analysis
+- 03-kag-exp0-ercot-study-dataset.py: Exploratory data analysis
 """

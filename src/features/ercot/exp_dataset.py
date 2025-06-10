@@ -47,7 +47,7 @@ class ExpDataset(ABC):
         # Initialize data containers
         self.raw_data: Dict[str, pd.DataFrame] = {}
         self.dependent_vars: Optional[pd.DataFrame] = None
-        self.independent_vars: Optional[pd.DataFrame] = None
+        self.independent_vars_data: Optional[pd.DataFrame] = None
         self.study_data: Optional[pd.DataFrame] = None
 
     def load_data(self) -> Dict[str, pd.DataFrame]:

@@ -4259,3 +4259,388 @@ def plot_dart_average_daily_heatmap(
     print(
         f"Average DART daily cycle heatmap analysis complete: {len(unique_points)} settlement points processed"
     )
+
+
+def plot_dart_slt_vs_features_by_hour(
+    df: pd.DataFrame,
+    output_dir: Path,
+    dependent_vars: list,
+    independent_vars: list,
+    title_suffix: str = "",
+) -> None:
+    """Create scatter plots of dependent vs independent variables faceted by hour of day.
+
+    This function anticipates the modeling stage where 24 separate models will be built,
+    one for each end_of_hour. For each dependent variable vs independent variable combination,
+    creates a scatter plot with 24 subplots (one per hour) showing:
+    - Scatter points color-coded by weekend (True/False)
+    - Linear regression fit line
+    - Non-parametric smoothed fit line
+    - Consistent y-axis scaling across all hours for comparison
+
+    Args:
+        df: DataFrame containing DART data with columns:
+           - end_of_hour: Hour of day (1-24)
+           - is_weekend: Boolean indicating weekend
+           - dart_slt: Signed log transformed DART (dependent variable)
+           - dart_slt_lag_*hr: Lagged features (independent variables)
+           - dart_slt_roll_*: Rolling statistics features (independent variables)
+           - location: Settlement point location
+           - location_type: Type of settlement point
+        output_dir: Directory where plots will be saved
+        dependent_vars: List of dependent variable column names
+        independent_vars: List of independent variable column names
+        title_suffix: Optional suffix to add to plot title
+    """
+    import warnings
+
+    from sklearn.linear_model import LinearRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import PolynomialFeatures
+
+    warnings.filterwarnings("ignore")
+
+    # Create unique identifier combining location and type
+    df = df.copy()
+    df["point_identifier"] = df.apply(
+        lambda row: f"{row['location']} ({row['location_type']})", axis=1
+    )
+
+    # Use the primary dependent variable (first in the list)
+    dependent_var = dependent_vars[0] if dependent_vars else "dart_slt"
+
+    print(
+        f"Creating feature relationship plots for {len(df['point_identifier'].unique())} settlement points"
+    )
+    print(f"Dependent variable: {dependent_var}")
+    print(f"Independent variables: {len(independent_vars)} features")
+
+    # Color mapping for weekend/weekday
+    color_map = {
+        False: PROFESSIONAL_COLORS["primary"],
+        True: PROFESSIONAL_COLORS["accent"],
+    }
+
+    # Process each settlement point separately
+    settlement_points = df["point_identifier"].unique()
+
+    for point_id in settlement_points:
+        point_data = df[df["point_identifier"] == point_id].copy()
+        print(f"Processing {point_id}: {len(point_data)} data points")
+
+        # Create safe filename identifier (consistent with other plotting functions)
+        safe_identifier = (
+            point_id.replace(" ", "_")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("/", "_")
+        )
+
+        # Create subdirectory for this settlement point
+        point_output_dir = output_dir / safe_identifier
+        point_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # For each independent variable, create a separate plot
+        for indep_var in independent_vars:
+            # Skip if too many missing values
+            valid_data = point_data.dropna(
+                subset=[dependent_var, indep_var, "end_of_hour", "is_weekend"]
+            )
+            if len(valid_data) < 100:  # Need minimum data for meaningful analysis
+                print(
+                    f"  Skipping {indep_var}: insufficient data ({len(valid_data)} points)"
+                )
+                continue
+
+            print(f"  Creating plot for {indep_var}: {len(valid_data)} data points")
+
+            # Create subplots: 4 rows x 6 columns for 24 hours
+            fig = make_subplots(
+                rows=4,
+                cols=6,
+                vertical_spacing=0.08,
+                horizontal_spacing=0.06,
+                shared_yaxes=True,  # Critical for comparison across hours
+                shared_xaxes=False,
+            )
+
+            # Get global y-axis range for consistent scaling
+            y_min, y_max = (
+                valid_data[dependent_var].min(),
+                valid_data[dependent_var].max(),
+            )
+            y_range = y_max - y_min
+            y_margin = y_range * 0.05  # 5% margin
+            global_y_range = [y_min - y_margin, y_max + y_margin]
+
+            # Get global x-axis range for consistent scaling
+            x_min, x_max = valid_data[indep_var].min(), valid_data[indep_var].max()
+            x_range = x_max - x_min
+            x_margin = x_range * 0.05  # 5% margin
+            global_x_range = [x_min - x_margin, x_max + x_margin]
+
+            # Statistics collection
+            hour_stats = []
+
+            # Process each hour (1-24)
+            for hour in range(1, 25):
+                row = ((hour - 1) // 6) + 1
+                col = ((hour - 1) % 6) + 1
+
+                hour_data = valid_data[valid_data["end_of_hour"] == hour]
+
+                if len(hour_data) < 5:  # Skip hours with too little data
+                    # Add empty subplot
+                    fig.add_annotation(
+                        text="Insufficient Data",
+                        x=0.5,
+                        y=0.5,
+                        xref=f"x{((row-1)*6 + col)}",
+                        yref=f"y{((row-1)*6 + col)}",
+                        showarrow=False,
+                        font=dict(size=10, color="gray"),
+                        row=row,
+                        col=col,
+                    )
+                    continue
+
+                # Separate weekend and weekday data
+                weekday_data = hour_data[hour_data["is_weekend"] == False]
+                weekend_data = hour_data[hour_data["is_weekend"] == True]
+
+                # Add scatter points for weekday
+                if len(weekday_data) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=weekday_data[indep_var],
+                            y=weekday_data[dependent_var],
+                            mode="markers",
+                            marker=dict(color=color_map[False], size=4, opacity=0.7),
+                            name="Weekday" if hour == 1 else "",
+                            showlegend=(hour == 1),
+                            legendgroup="weekday",
+                            customdata=weekday_data["local_ts"],
+                            hovertemplate="<b>Weekday</b><br>"
+                            + f"{indep_var}: %{{x:.3f}}<br>"
+                            + f"{dependent_var}: %{{y:.3f}}<br>"
+                            + "Date: %{customdata}<br>"
+                            + "<extra></extra>",
+                        ),
+                        row=row,
+                        col=col,
+                    )
+
+                # Add scatter points for weekend
+                if len(weekend_data) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=weekend_data[indep_var],
+                            y=weekend_data[dependent_var],
+                            mode="markers",
+                            marker=dict(color=color_map[True], size=4, opacity=0.7),
+                            name="Weekend" if hour == 1 else "",
+                            showlegend=(hour == 1),
+                            legendgroup="weekend",
+                            customdata=weekend_data["local_ts"],
+                            hovertemplate="<b>Weekend</b><br>"
+                            + f"{indep_var}: %{{x:.3f}}<br>"
+                            + f"{dependent_var}: %{{y:.3f}}<br>"
+                            + "Date: %{customdata}<br>"
+                            + "<extra></extra>",
+                        ),
+                        row=row,
+                        col=col,
+                    )
+
+                # Add linear fit line
+                if len(hour_data) > 10:  # Need sufficient data for fits
+                    try:
+                        # Linear fit
+                        x_vals = hour_data[indep_var].values.reshape(-1, 1)
+                        y_vals = hour_data[dependent_var].values
+
+                        linear_model = LinearRegression()
+                        linear_model.fit(x_vals, y_vals)
+
+                        x_range = np.linspace(
+                            hour_data[indep_var].min(), hour_data[indep_var].max(), 50
+                        )
+                        linear_pred = linear_model.predict(x_range.reshape(-1, 1))
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_range,
+                                y=linear_pred,
+                                mode="lines",
+                                line=dict(
+                                    color=PROFESSIONAL_COLORS["neutral"],
+                                    width=2,
+                                    dash="solid",
+                                ),
+                                name="Linear Fit" if hour == 1 else "",
+                                showlegend=(hour == 1),
+                                legendgroup="linear",
+                            ),
+                            row=row,
+                            col=col,
+                        )
+
+                        # Polynomial (smoothed) fit
+                        poly_model = Pipeline(
+                            [
+                                ("poly", PolynomialFeatures(degree=2)),
+                                ("linear", LinearRegression()),
+                            ]
+                        )
+                        poly_model.fit(x_vals, y_vals)
+                        poly_pred = poly_model.predict(x_range.reshape(-1, 1))
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_range,
+                                y=poly_pred,
+                                mode="lines",
+                                line=dict(
+                                    color=PROFESSIONAL_COLORS["secondary"],
+                                    width=2,
+                                    dash="dash",
+                                ),
+                                name="Polynomial Fit" if hour == 1 else "",
+                                showlegend=(hour == 1),
+                                legendgroup="polynomial",
+                            ),
+                            row=row,
+                            col=col,
+                        )
+
+                        # Calculate statistics
+                        r2_linear = linear_model.score(x_vals, y_vals)
+                        r2_poly = poly_model.score(x_vals, y_vals)
+
+                    except Exception as e:
+                        r2_linear = np.nan
+                        r2_poly = np.nan
+                else:
+                    r2_linear = np.nan
+                    r2_poly = np.nan
+
+                # Collect statistics
+                hour_stats.append(
+                    {
+                        "hour": hour,
+                        "n_points": len(hour_data),
+                        "n_weekday": len(weekday_data),
+                        "n_weekend": len(weekend_data),
+                        "mean_y": hour_data[dependent_var].mean(),
+                        "std_y": hour_data[dependent_var].std(),
+                        "mean_x": hour_data[indep_var].mean(),
+                        "std_x": hour_data[indep_var].std(),
+                        "correlation": hour_data[dependent_var].corr(
+                            hour_data[indep_var]
+                        ),
+                        "r2_linear": r2_linear,
+                        "r2_polynomial": r2_poly,
+                        "dependent_var": dependent_var,
+                        "independent_var": indep_var,
+                    }
+                )
+
+            # Apply consistent axis ranges to all subplots
+            for row in range(1, 5):
+                for col in range(1, 7):
+                    fig.update_yaxes(range=global_y_range, row=row, col=col)
+                    fig.update_xaxes(range=global_x_range, row=row, col=col)
+
+            # Update layout with professional styling
+            title = f"DART SLT vs {indep_var} by Hour of Day - {point_id}{title_suffix}"
+            fig.update_layout(
+                **get_professional_layout(
+                    title, height=800, width=1200, legend_position="external_right"
+                )
+            )
+
+            # Apply professional axis styling
+            apply_professional_axis_styling(fig, rows=4, cols=6)
+
+            # Add centered axis labels - only once per plot
+            # X-axis label at bottom center
+            fig.add_annotation(
+                text=indep_var,
+                x=0.5,
+                y=-0.08,
+                xref="paper",
+                yref="paper",
+                font=dict(size=14, color=PROFESSIONAL_COLORS["text"]),
+                showarrow=False,
+                xanchor="center",
+            )
+
+            # Y-axis label at left center (rotated)
+            fig.add_annotation(
+                text=dependent_var,
+                x=-0.05,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                font=dict(size=14, color=PROFESSIONAL_COLORS["text"]),
+                showarrow=False,
+                textangle=-90,
+                xanchor="center",
+                yanchor="middle",
+            )
+
+            # Add hour indicators to each subplot
+            for hour in range(1, 25):
+                row = ((hour - 1) // 6) + 1
+                col = ((hour - 1) % 6) + 1
+
+                # Calculate subplot reference - first subplot uses 'x'/'y', others use 'x2'/'y2', etc.
+                subplot_num = (row - 1) * 6 + col
+                xref = "x domain" if subplot_num == 1 else f"x{subplot_num} domain"
+                yref = "y domain" if subplot_num == 1 else f"y{subplot_num} domain"
+
+                fig.add_annotation(
+                    text=f"H{hour}",
+                    x=0.02,
+                    y=0.95,
+                    xref=xref,
+                    yref=yref,
+                    font=dict(size=10, color=PROFESSIONAL_COLORS["text"]),
+                    showarrow=False,
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor=PROFESSIONAL_COLORS["text"],
+                    borderwidth=1,
+                )
+
+            # Remove individual subplot axis labels (they're now redundant)
+            for row in range(1, 5):
+                for col in range(1, 7):
+                    fig.update_xaxes(title_text="", row=row, col=col)
+                    fig.update_yaxes(title_text="", row=row, col=col)
+
+            # Save outputs
+            base_filename = f"{dependent_var}_vs_{indep_var}_by_hour_{safe_identifier}"
+
+            # Save HTML
+            html_file = point_output_dir / f"{base_filename}.html"
+            fig.write_html(str(html_file))
+            print(f"  Plot saved to: {html_file}")
+
+            # Save PNG
+            png_file = point_output_dir / f"{base_filename}.png"
+            fig.write_image(str(png_file), width=1200, height=800, scale=2)
+            print(f"  PNG saved to: {png_file}")
+
+            # Save statistics
+            stats_df = pd.DataFrame(hour_stats)
+            stats_df["location"] = point_data["location"].iloc[0]
+            stats_df["location_type"] = point_data["location_type"].iloc[0]
+            stats_df["point_identifier"] = point_id
+
+            stats_file = point_output_dir / f"{base_filename}_stats.csv"
+            stats_df.to_csv(stats_file, index=False)
+            print(f"  Statistics saved to: {stats_file}")
+
+    print(
+        f"Feature relationship analysis complete: {len(settlement_points)} settlement points processed"
+    )

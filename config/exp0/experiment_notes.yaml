@@ -2,11 +2,12 @@
 metadata:
   created_date: "2024-03-19"
   author: "kag"
-  status: "in_progress"
+  status: "dataset_complete"
+  last_updated: "2024-12-19"
 
 description: |
-  Initial experiment to establish baseline study dataset and modeling approach.
-  This will serve as a template for future experiments.
+  Baseline DART price prediction experiment using lagged and rolling features.
+  Focus: RT-DAM price differences with signed log transformation.
 
 important_notes: |
   WARNING - Hour Numbering:
@@ -14,12 +15,11 @@ important_notes: |
   - ERCOT: Uses 1-24 (where hour 24 is midnight)
   - Python datetime: Uses 0-23 (where hour 0 is midnight)
   
-  This difference is handled in our ETL process (see ERCOTBaseETL.combine_date_hour),
-  but it's crucial to be aware of this when:
-  - Analyzing raw ERCOT data
-  - Converting between ERCOT and Python time representations
-  - Interpreting visualizations or results
-  - Implementing new data processing functions
+  This difference is handled in our ETL process (see ERCOTBaseETL.combine_date_hour).
+
+  DART Calculation:
+  - DART = RT_Price - DAM_Price (positive = RT higher, negative = RT lower)
+  - Uses signed log transformation for modeling: sign(x) * log(1 + |x|)
 
 data_sources:
   - processed_dam_spp_clean
@@ -30,17 +30,43 @@ data_sources:
   - processed_rt_spp_transformed  # Contains hourly statistics
 
 workflow_steps:
-  study_dataset: "03-kag-exp0-study-dataset.py"
+  study_dataset: "03-kag-exp0-ercot-study-dataset.py"
   model_train: "04-kag-exp0-model-train.py"
   model_inference: "05-kag-exp0-model-inference.py"
+
+implementation_status:
+  completed:
+    - ✅ Self-describing dataset class with centralized configuration
+    - ✅ DART dependent variable generation (raw + signed log transform)
+    - ✅ Lagged features (1hr, 2hr, 24hr, 168hr)
+    - ✅ Rolling statistics (24hr, 168hr means + std dev)
+    - ✅ Comprehensive EDA (19 plot types + new hourly feature analysis)
+    - ✅ Dataset finalization with null removal and validation
+    - ✅ Clean data export (CSV + database)
+    - ✅ Temporal completeness validation
+  
+  features:
+    dependent_vars: ["dart_slt"]
+    lag_hours: [1, 2, 24, 168]
+    roll_hours: [24, 168]
+    independent_vars: ["dart_slt_lag_*hr", "dart_slt_roll_mean_*hr", "dart_slt_roll_sdev_*hr"]
 
 key_decisions:
   - Two-stage data processing (clean → transform) for better auditability
   - RT SPP uses transformed data with hourly statistics, others use cleaned data
-  - Consistent naming across clients (location, price, dst_flag)
+  - Signed log transformation handles bimodal distribution and extreme values
+  - Self-describing class design eliminates hardcoded parameters
+  - 24 hourly models anticipated (one per end_of_hour)
 
-findings: []
+findings:
+  - Successfully processed 25,978 → 25,574 clean records (1.6% removal)
+  - Bimodal DART distribution confirmed across settlement points
+  - Strong daily/weekly patterns in price differences
+  - Feature relationships vary significantly by hour (justifies 24 models)
+  - Temporal completeness validation passed for all locations
+
 next_steps: 
-  - Implement feature creation logic in study dataset
-  - Verify hourly statistics calculations
-  - Define target variables for modeling 
+  - Implement 24 hourly models (04-kag-exp0-modeling.py)
+  - Add external features (load, wind, solar, system lambda)
+  - Cross-validation and performance evaluation
+  - Model deployment pipeline 
