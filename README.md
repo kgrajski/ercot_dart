@@ -134,5 +134,5 @@ Sign transition summary:
 
 These insights establish a strong foundation for downstream forecasting and classification models. They suggest:
 - Rich temporal and categorical structure in DART behavior
-- Usefulness of regime classification over raw regression
-- Opportunities for integrating time-aware and probability-
+- Availability of regime classification as a supplement to raw regression
+- Opportunities for integrating time-aware and probability-based models

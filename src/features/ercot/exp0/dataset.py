@@ -69,7 +69,12 @@ class Exp0Dataset(ExpDataset):
         )
 
         # Feature configuration for this experiment
-        self.lag_hours = [1, 2, 24, 168]  # 1 hour, 2 hours, 1 day, 1 week
+        # For 24-hour ahead prediction, we need lags that are available at prediction time:
+        # - 24hr lag: Same hour, previous day (e.g., predict 6 AM tomorrow using 6 AM yesterday)
+        # - 25hr lag: 1 hour before same hour, previous day (e.g., 5 AM yesterday)
+        # - 26hr lag: 2 hours before same hour, previous day (e.g., 4 AM yesterday)
+        # - 168hr lag: Same hour, previous week (weekly patterns)
+        self.lag_hours = [24, 25, 26, 168]  # 1 day, 1 day + 1hr, 1 day + 2hr, 1 week
         self.roll_hours = [24, 168]  # 1 day, 1 week
 
         # Variable definitions
@@ -96,9 +101,17 @@ class Exp0Dataset(ExpDataset):
     def independent_vars(self) -> list:
         """Get list of independent variable column names.
 
+        Returns the overridden list if categorical encoding has been applied,
+        otherwise returns the original computed list.
+
         Returns:
             list: Column names for all independent variables
         """
+        # Return override if categorical encoding has been applied
+        if hasattr(self, "_independent_vars_override"):
+            return self._independent_vars_override
+
+        # Original computation
         vars_list = []
 
         # Add lagged features
@@ -240,18 +253,18 @@ class Exp0Dataset(ExpDataset):
             col_name = f"dart_slt_lag_{lag_h}hr"
             df[col_name] = df["dart_slt"].shift(lag_h)
 
-        # Create rolling statistics (simple since we're processing single entity)
+        # Create rolling statistics (shifted to end 24 hours before prediction time)
         for roll_h in roll_hours:
-            # Rolling mean
+            # Rolling mean - shift back 24 hours to avoid data leakage
             roll_mean_col = f"dart_slt_roll_mean_{roll_h}hr"
             df[roll_mean_col] = (
-                df["dart_slt"].rolling(window=roll_h, min_periods=1).mean()
+                df["dart_slt"].shift(24).rolling(window=roll_h, min_periods=1).mean()
             )
 
-            # Rolling standard deviation
+            # Rolling standard deviation - shift back 24 hours to avoid data leakage
             roll_sdev_col = f"dart_slt_roll_sdev_{roll_h}hr"
             df[roll_sdev_col] = (
-                df["dart_slt"].rolling(window=roll_h, min_periods=1).std()
+                df["dart_slt"].shift(24).rolling(window=roll_h, min_periods=1).std()
             )
 
         print(f"  Processed {location} [{location_type}]: {len(df):,} records")
@@ -260,19 +273,20 @@ class Exp0Dataset(ExpDataset):
     def generate_independent_vars(self):
         """Generate independent variables for Exp0.
 
-        For this initial experiment, we create time series features from DART SLT:
+        For 24-hour ahead prediction, we create time series features from DART SLT
+        that are available at prediction time (no data leakage):
 
         Lagged features:
-        - dart_slt_lag_1hr: DART SLT value from 1 hour ago
-        - dart_slt_lag_2hr: DART SLT value from 2 hours ago
-        - dart_slt_lag_24hr: DART SLT value from 24 hours ago (1 day)
-        - dart_slt_lag_168hr: DART SLT value from 168 hours ago (7 days)
+        - dart_slt_lag_24hr: DART SLT value from 24 hours ago (same hour, previous day)
+        - dart_slt_lag_25hr: DART SLT value from 25 hours ago (1 hour before, previous day)
+        - dart_slt_lag_26hr: DART SLT value from 26 hours ago (2 hours before, previous day)
+        - dart_slt_lag_168hr: DART SLT value from 168 hours ago (same hour, previous week)
 
-        Rolling statistics:
-        - dart_slt_roll_mean_24hr: 24-hour rolling mean of DART SLT
-        - dart_slt_roll_sdev_24hr: 24-hour rolling standard deviation of DART SLT
-        - dart_slt_roll_mean_168hr: 168-hour rolling mean of DART SLT
-        - dart_slt_roll_sdev_168hr: 168-hour rolling standard deviation of DART SLT
+        Rolling statistics (ending 24 hours before prediction time):
+        - dart_slt_roll_mean_24hr: 24-hour rolling mean ending 24 hours ago
+        - dart_slt_roll_sdev_24hr: 24-hour rolling standard deviation ending 24 hours ago
+        - dart_slt_roll_mean_168hr: 168-hour rolling mean ending 24 hours ago
+        - dart_slt_roll_sdev_168hr: 168-hour rolling standard deviation ending 24 hours ago
 
         Processes each location+location_type combination independently and saves
         to individual subdirectories for future orchestration/parallelization.
@@ -559,11 +573,12 @@ class Exp0Dataset(ExpDataset):
     def finalize_study_dataset(self):
         """Finalize study dataset by cleaning and validating data.
 
-        This method performs sequential cleaning steps:
-        1. Remove rows with null/NaN dependent variables (dart_slt)
-        2. Remove rows with null/NaN independent variables
-        3. Validate temporal completeness for each location+location_type
-        4. Save final clean datasets in both CSV and database formats
+        This method performs sequential steps:
+        1. Apply categorical encoding (one-hot for cyclical, label for boolean features)
+        2. Remove rows with null/NaN dependent variables (dart_slt)
+        3. Remove rows with null/NaN independent variables
+        4. Validate temporal completeness for each location+location_type
+        5. Save final clean datasets in both CSV and database formats
 
         Reports on all cleaning actions taken.
         """
@@ -574,7 +589,11 @@ class Exp0Dataset(ExpDataset):
 
         print("Finalizing study dataset...")
 
-        # Get configuration from instance variables
+        # Step 0: Apply categorical encoding to prepare data for modeling
+        print("Applying categorical encoding...")
+        self._apply_categorical_encoding()
+
+        # Get configuration from instance variables (updated after encoding)
         dependent_vars = self.dependent_vars
         independent_vars = self.independent_vars
 
@@ -715,11 +734,7 @@ class Exp0Dataset(ExpDataset):
             table_name = f"{self.db_table_prefix}_final_{summary['safe_id']}"
             db_processor.save_to_database(location_data, table_name)
 
-        # Save combined final dataset to database
-        db_processor.save_to_database(
-            self.final_study_data, f"{self.db_table_prefix}_final_dataset_combined"
-        )
-        print(f"Saved final datasets to database: {db_path}")
+        print(f"Saved {len(cleaning_summaries)} final datasets to database: {db_path}")
 
         # Print comprehensive summary
         print(f"\n=== FINAL DATASET SUMMARY ===")
@@ -746,6 +761,72 @@ class Exp0Dataset(ExpDataset):
                 f"  {summary['location']} [{summary['location_type']}]: "
                 f"{summary['final_records']:,} records ({removed:,} removed, {removal_pct:.1f}%) {status}"
             )
+
+    def _apply_categorical_encoding(self):
+        """Apply categorical encoding to study data.
+
+        - One-hot encode cyclical features (day_of_week)
+        - Label encode boolean features (is_weekend, is_holiday)
+        - Update independent_vars list to include new feature columns
+        """
+        # Import required libraries
+        from sklearn.preprocessing import LabelEncoder
+
+        # Define encoding strategies
+        label_encode_columns = ["is_weekend", "is_holiday"]  # Boolean features
+        one_hot_columns = ["day_of_week"]  # Cyclical features
+
+        print(f"  Label encoding: {label_encode_columns}")
+        print(f"  One-hot encoding: {one_hot_columns}")
+
+        # Apply label encoding to boolean features
+        for cat_col in label_encode_columns:
+            if cat_col in self.study_data.columns:
+                le = LabelEncoder()
+                self.study_data[cat_col] = le.fit_transform(
+                    self.study_data[cat_col].astype(str)
+                ).astype("float64")
+                print(f"    Label encoded {cat_col}: {len(le.classes_)} classes")
+
+        # Apply one-hot encoding to cyclical features
+        new_one_hot_columns = []
+        for cat_col in one_hot_columns:
+            if cat_col in self.study_data.columns:
+                # Create one-hot encoded columns
+                one_hot_df = pd.get_dummies(self.study_data[cat_col], prefix=cat_col)
+
+                # Add to main dataframe
+                self.study_data = pd.concat([self.study_data, one_hot_df], axis=1)
+
+                # Track new column names
+                new_one_hot_columns.extend(one_hot_df.columns.tolist())
+
+                # Remove original column
+                self.study_data.drop(columns=[cat_col], inplace=True)
+
+                print(
+                    f"    One-hot encoded {cat_col}: {len(one_hot_df.columns)} features"
+                )
+                print(f"      New columns: {list(one_hot_df.columns)}")
+
+        # Update independent_vars to include new one-hot features and remove original
+        original_independent_vars = self.independent_vars.copy()
+
+        # Remove original cyclical columns from independent vars
+        updated_independent_vars = [
+            var for var in original_independent_vars if var not in one_hot_columns
+        ]
+
+        # Add new one-hot columns
+        updated_independent_vars.extend(new_one_hot_columns)
+
+        # Update the instance variable by overriding the property
+        self._independent_vars_override = updated_independent_vars
+
+        print(
+            f"  Updated independent variables count: {len(original_independent_vars)} → {len(updated_independent_vars)}"
+        )
+        print(f"  Added one-hot features: {new_one_hot_columns}")
 
     def _validate_temporal_completeness_single(
         self, df: pd.DataFrame, location: str, location_type: str
