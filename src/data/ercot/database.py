@@ -182,7 +182,7 @@ class DatabaseProcessor:
 
             # Deduplicate and save data
             deduped_df = self.deduplicate_data(prepared_df, client_key)
-            deduped_df.to_sql(client_key, conn, if_exists="append", index=False)
+            deduped_df.to_sql(client_key, conn, if_exists="replace", index=False)
 
             print(
                 f"Saved {len(deduped_df)} records to {client_key} table in {self.db_path}"

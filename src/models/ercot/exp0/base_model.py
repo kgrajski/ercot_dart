@@ -6,10 +6,10 @@ Experiment 0 model implementations. It handles common functionality including:
 Key Features:
 - Train/test data splitting by year (2024 train, 2025 test)
 - Hourly model training (24 separate models)
-- Cross-validation with appropriate strategies
+- Bootstrap resampling for performance evaluation with comprehensive metrics
 - Results storage and retrieval
 - Model persistence and loading
-- Comprehensive evaluation metrics
+- Comprehensive evaluation metrics including Lago et al. electricity-specific measures
 - Visualization and plotting capabilities
 
 Model Types Supported:
@@ -19,6 +19,7 @@ Model Types Supported:
 """
 
 import json
+import os
 import pickle
 from abc import ABC
 from abc import abstractmethod
@@ -33,12 +34,10 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import r2_score
-from sklearn.utils import resample
 
 from src.data.ercot.database import DatabaseProcessor
+from src.models.ercot.exp0.bootstrap_evaluator import BootstrapEvaluator
+from src.models.ercot.exp0.evaluation_metrics import EvaluationMetrics
 
 
 class BaseExp0Model(ABC):
@@ -81,14 +80,18 @@ class BaseExp0Model(ABC):
         self.train_data = None
         self.validation_data = None
 
+        # Initialize comprehensive metrics evaluator
+        self.evaluator = EvaluationMetrics(time_aware=True, price_threshold=1.0)
+        self.bootstrap_evaluator = BootstrapEvaluator(self.evaluator, random_state)
+
         # Create output directories
-        self.model_dir = self.output_dir / model_type
+        # The output directory is the same as the model_type, so we don't need to include
+        # in the subsidiary files, such as for results.
+        self.model_dir = Path(os.path.join(self.output_dir, model_type))
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         # Database for results storage
-        self.db_processor = DatabaseProcessor(
-            str(self.model_dir / f"{model_type}_results.db")
-        )
+        self.db_processor = DatabaseProcessor(str(self.model_dir / "results.db"))
 
     def load_data(self, dataset) -> None:
         """Load and split data from DartSltExp0Dataset.
@@ -178,7 +181,7 @@ class BaseExp0Model(ABC):
             self.results[end_hour] = hour_results
 
             print(
-                f"  Bootstrap R²: {hour_results['cv_r2_mean']:.4f} ± {hour_results['cv_r2_std']:.4f}"
+                f"  Bootstrap R²: {hour_results['bootstrap_r2_mean']:.4f} ± {hour_results['bootstrap_r2_std']:.4f}"
             )
             if hour_results.get("validation_r2") is not None:
                 print(f"  Validation R²: {hour_results['validation_r2']:.4f}")
@@ -221,12 +224,10 @@ class BaseExp0Model(ABC):
         y_validation: Optional[pd.Series] = None,
         bootstrap_iterations: int = 5,
     ) -> Dict[str, Any]:
-        """Evaluate model performance using bootstrap resampling + final validation.
+        """Evaluate model performance using bootstrap resampling + final validation with comprehensive metrics.
 
-        This method performs TWO types of evaluation:
-        1. Bootstrap performance estimation: Creates temporary models on bootstrap
-           samples of training data to estimate performance variability
-        2. Final validation: Evaluates the main model on holdout validation data
+        This method delegates to the BootstrapEvaluator for clean separation of concerns.
+        All bootstrap and validation evaluation logic is handled by the specialized evaluator.
 
         Args:
             model: Trained model (fitted on full training data)
@@ -238,116 +239,47 @@ class BaseExp0Model(ABC):
 
         Returns:
             Dictionary with evaluation metrics:
-            - cv_r2_mean/std: Bootstrap performance estimates (from temporary models)
-            - validation_r2/mae/rmse: Final validation metrics (from main model)
+            - bootstrap_*_mean/std: Bootstrap performance estimates (from temporary models)
+            - validation_*: Final validation metrics (from main model)
+            - Comprehensive metrics from EvaluationMetrics class
         """
-        results = {}
-
-        # === PART 1: Bootstrap Performance Estimation ===
-        # Creates temporary models to estimate how performance varies with training data
-        bootstrap_scores = []
-
-        print(
-            f"  Starting bootstrap evaluation with {bootstrap_iterations} iterations on {len(X_train)} training samples"
+        return self.bootstrap_evaluator.evaluate_model_with_bootstrap(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            X_validation=X_validation,
+            y_validation=y_validation,
+            bootstrap_iterations=bootstrap_iterations,
         )
-
-        for i in range(bootstrap_iterations):
-            # Create bootstrap sample (sample with replacement, same size as original)
-            X_boot, y_boot = resample(
-                X_train,
-                y_train,
-                n_samples=len(X_train),
-                random_state=self.random_state + i,  # Different seed for each iteration
-            )
-
-            # Identify out-of-bag (OOB) samples - samples not in bootstrap
-            boot_indices = set(X_boot.index)
-            oob_indices = [idx for idx in X_train.index if idx not in boot_indices]
-
-            print(
-                f"    Bootstrap {i+1}: Bootstrap sample={len(X_boot)}, OOB samples={len(oob_indices)}"
-            )
-
-            if len(oob_indices) < 5:  # Need minimum samples for meaningful evaluation
-                # Fallback: use a random 20% of original data as test set
-                test_size = max(5, int(0.2 * len(X_train)))
-                test_indices = np.random.choice(
-                    X_train.index, size=test_size, replace=False
-                )
-                X_test = X_train.loc[test_indices]
-                y_test = y_train.loc[test_indices]
-                print(
-                    f"    Bootstrap {i+1}: Using fallback random test set of {len(X_test)} samples (OOB too small)"
-                )
-            else:
-                # Use out-of-bag samples as test set
-                X_test = X_train.loc[oob_indices]
-                y_test = y_train.loc[oob_indices]
-                print(
-                    f"    Bootstrap {i+1}: Using OOB test set of {len(X_test)} samples"
-                )
-
-            # Train TEMPORARY model on bootstrap sample and evaluate on test set
-            from sklearn.base import clone
-
-            bootstrap_model = clone(model)  # Temporary model for evaluation only
-            bootstrap_model.fit(X_boot, y_boot)
-
-            # Evaluate temporary model
-            y_pred = bootstrap_model.predict(X_test)
-            score = r2_score(y_test, y_pred)
-            bootstrap_scores.append(score)
-
-        # Store bootstrap results (performance estimates)
-        bootstrap_scores = np.array(bootstrap_scores)
-        results.update(
-            {
-                "cv_r2_scores": bootstrap_scores.tolist(),  # Keep same name for compatibility
-                "cv_r2_mean": bootstrap_scores.mean(),
-                "cv_r2_std": bootstrap_scores.std(),
-                "n_train_samples": len(X_train),
-                "bootstrap_iterations": bootstrap_iterations,
-            }
-        )
-
-        # === PART 2: Final Validation Evaluation ===
-        # Evaluates the MAIN model on true holdout data (2025)
-        if X_validation is not None and y_validation is not None:
-            y_pred = model.predict(X_validation)  # Main model on holdout data
-            results.update(
-                {
-                    "validation_r2": r2_score(y_validation, y_pred),
-                    "validation_mae": mean_absolute_error(y_validation, y_pred),
-                    "validation_rmse": np.sqrt(
-                        mean_squared_error(y_validation, y_pred)
-                    ),
-                    "n_validation_samples": len(X_validation),
-                }
-            )
-
-        return results
 
     def _save_results(self) -> None:
         """Save models and results to disk."""
         # Save models
-        models_file = self.model_dir / f"{self.settlement_point}_models.pkl"
-        with open(models_file, "wb") as f:
+        with open(os.path.join(self.model_dir, "models.pk"), "wb") as f:
             pickle.dump(self.models, f)
 
-        # Save results as JSON
-        results_file = self.model_dir / f"{self.settlement_point}_results.json"
-        with open(results_file, "w") as f:
+        # Save results as JSON (can handle lists)
+        with open(os.path.join(self.model_dir, "results.json"), "w") as f:
             json.dump(self.results, f, indent=2)
 
+        # Prepare results for database/CSV (exclude list-type fields)
+        db_results = {}
+        for hour, hour_results in self.results.items():
+            # Create a clean copy excluding list-type fields that can't be in DataFrame columns
+            clean_results = {
+                k: v for k, v in hour_results.items() if not isinstance(v, list)
+            }
+            db_results[hour] = clean_results
+
         # Save results to database
-        results_df = pd.DataFrame.from_dict(self.results, orient="index")
+        results_df = pd.DataFrame.from_dict(db_results, orient="index")
         results_df.index.name = "end_hour"
         results_df.reset_index(inplace=True)
         results_df["settlement_point"] = self.settlement_point
         results_df["model_type"] = self.model_type
+        self.db_processor.save_to_database(results_df, f"results")
 
-        self.db_processor.save_to_database(
-            results_df, f"{self.model_type}_{self.settlement_point}_results"
-        )
+        # Save results to CSV
+        results_df.to_csv(os.path.join(self.model_dir, "results.csv"), index=False)
 
         print(f"Models and results saved to: {self.model_dir}")

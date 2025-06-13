@@ -1,6 +1,6 @@
 """DAM Settlement Point Prices visualization client.
 
-See: https://www.ercot.com/mp/data-products/data-product-details?id=np4-191-cd
+See: https://www.ercot.com/mp/data-products/data-product-details?id=np4-190-cd
 
 """
 

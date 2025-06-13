@@ -163,6 +163,9 @@ class Exp0Dataset(ExpDataset):
 
         # Merge RT and DAM data on utc_ts and location
         # Using left merge to keep all RT records
+        # Note that real-time prices are quoted for location and location type
+        # Note that DAM prices are quoted for location only
+        # Therefore, when we left merge with real-time prices, the one DAM location price will be applied
         result_df = rt_df.merge(
             dam_df[["utc_ts", "location", "price"]],
             on=["utc_ts", "location"],
@@ -306,7 +309,10 @@ class Exp0Dataset(ExpDataset):
         # =====================================================================
 
         # Create day of week from local_ts (business time) using apply for mixed timezone handling
-        # local_ts contains timezone-aware timestamps that may have different timezones (DST)
+        #
+        # NOTE: It is safe to use day_of_week, is_weekend, and is_holiday as features for forecasting,
+        # because these are fully determined by the delivery date and are known in advance for any
+        # forecast. There is no information leakage, as long as the holiday calendar is fixed and public.
         self.study_data["day_of_week"] = self.study_data["local_ts"].apply(
             lambda x: pd.to_datetime(x).dayofweek if pd.notna(x) else None
         )

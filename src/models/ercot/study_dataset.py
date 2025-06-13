@@ -152,20 +152,3 @@ class StudyDataset(Dataset, ABC):
 
         print(f"Loaded {len(df)} records from {table_name} table in {db_path}")
         return df
-
-    def get_info(self) -> dict:
-        """Get basic information about the dataset.
-
-        Returns:
-            dict: Dataset information including shape, columns, etc.
-        """
-        if self.df is None:
-            return {"status": "No data loaded"}
-
-        return {
-            "experiment_id": self.experiment_id,
-            "shape": self.df.shape,
-            "columns": list(self.df.columns),
-            "feature_names": self.get_feature_names(),
-            "memory_usage_mb": self.df.memory_usage(deep=True).sum() / 1024**2,
-        }

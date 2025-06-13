@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,7 @@ class DartSltExp0Dataset(StudyDataset):
         feature_columns: list = None,
         metadata_columns: list = None,
         auto_create_model_ready: bool = True,
+        output_dir: str = None,
     ):
         """Initialize the dataset.
 
@@ -36,6 +38,7 @@ class DartSltExp0Dataset(StudyDataset):
             feature_columns: List of feature column names. If None, uses default features
             metadata_columns: List of metadata columns to preserve. If None, uses defaults
             auto_create_model_ready: If True, automatically creates and saves model-ready dataset
+            output_dir: Directory for model_ready outputs (modeling dir, not model_type subdir)
         """
         # Find the final dataset file automatically
         fnames = [
@@ -51,8 +54,9 @@ class DartSltExp0Dataset(StudyDataset):
         final_dataset_file_name = os.path.join(spp_dir, fnames[0])
         print(f"Final dataset file: {final_dataset_file_name}")
 
-        # Initialize parent class (no output_dir needed for data loading)
-        super().__init__(experiment_id="exp0", output_dir=None)
+        # Pass output_dir to parent
+        super().__init__(experiment_id="exp0", output_dir=output_dir)
+        self.output_dir = Path(output_dir) if output_dir else Path.cwd()
 
         # Load the dataset (no dtype specification - let pandas handle it)
         self.df = pd.read_csv(
@@ -210,7 +214,7 @@ class DartSltExp0Dataset(StudyDataset):
 
         print(f"Reassembled dataset shape: {model_ready_df.shape}")
 
-        # Save to CSV and database
+        # Save to CSV and database in the correct output_dir
         csv_path = self.save_to_csv(filename_base, model_ready_df)
         db_path = self.save_to_database(filename_base, model_ready_df, filename_base)
 

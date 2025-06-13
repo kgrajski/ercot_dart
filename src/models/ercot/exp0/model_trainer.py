@@ -42,19 +42,18 @@ class Exp0ModelTrainer:
     }
 
     def __init__(
-        self, dataset, spp_dir: str, settlement_point: str, random_state: int = 42
+        self, dataset, modeling_dir: str, settlement_point: str, random_state: int = 42
     ):
         """Initialize model trainer.
 
         Args:
             dataset: DartSltExp0Dataset instance with model-ready data
-            spp_dir: Path to the settlement point directory (will create modeling subdir)
+            modeling_dir: Path to the modeling directory; individual model type results will be saved in subdirectories
             settlement_point: Settlement point identifier (e.g., 'LZ_HOUSTON_LZ')
             random_state: Random seed for reproducibility
         """
         # Create modeling directory for training outputs
-        self.output_dir = Path(spp_dir) / "modeling"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir = modeling_dir
 
         self.settlement_point = settlement_point
         self.random_state = random_state
@@ -163,9 +162,9 @@ class Exp0ModelTrainer:
         print(f"\n** Experiment Summary for {self.settlement_point}:")
         for model_type, results in all_results.items():
             if results:
-                avg_bootstrap_r2 = sum(r["cv_r2_mean"] for r in results.values()) / len(
-                    results
-                )
+                avg_bootstrap_r2 = sum(
+                    r["bootstrap_r2_mean"] for r in results.values()
+                ) / len(results)
                 print(
                     f"  {model_type}: {len(results)} hourly models, avg Bootstrap R² = {avg_bootstrap_r2:.4f}"
                 )

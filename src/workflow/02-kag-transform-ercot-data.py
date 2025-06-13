@@ -1,8 +1,16 @@
 """Script for transforming raw ERCOT data into clean format."""
 
 import os
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+# Add project root to Python path for direct script execution
+# This allows the script to work with both "Run Python File" and "python -m" approaches
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from src.etl.ercot import DAMSettlementPointPricesETL
 from src.etl.ercot import DAMSystemLambdaETL

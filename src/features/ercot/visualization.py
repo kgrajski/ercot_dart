@@ -1,5 +1,6 @@
 """Visualization utilities for ERCOT feature analysis."""
 
+import os
 import warnings
 from pathlib import Path
 
@@ -4644,3 +4645,72 @@ def plot_dart_slt_vs_features_by_hour(
     print(
         f"Feature relationship analysis complete: {len(settlement_points)} settlement points processed"
     )
+
+
+def plot_overlay_scatter(
+    df,
+    feature_cols,
+    target_col,
+    output_dir,
+    prefix,
+    transform_fn=None,
+    sample_frac=1.0,
+    title_suffix="",
+):
+    """
+    Overlay scatterplots of each feature_col in feature_cols vs. target_col.
+    Optionally apply transform_fn to each feature before plotting.
+    Saves .html, .png, and .csv in output_dir with the given prefix.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    if sample_frac < 1.0:
+        df = df.sample(frac=sample_frac, random_state=42)
+    fig = go.Figure()
+    csv_data = []
+    for col in feature_cols:
+        x = df[col]
+        if transform_fn is not None:
+            x = transform_fn(x, col) if callable(transform_fn) else x
+        y = df[target_col]
+        hover_text = [
+            f"Feature: {col}<br>UTC: {utc}<br>Local: {local}<br>{col}: {xv}<br>{target_col}: {yv}"
+            for utc, local, xv, yv in zip(df["utc_ts"], df["local_ts"], x, y)
+        ]
+        fig.add_trace(
+            go.Scattergl(
+                x=x,
+                y=y,
+                mode="markers",
+                name=col,
+                opacity=0.5,
+                marker=dict(size=4),
+                text=hover_text,
+                hoverinfo="text",
+            )
+        )
+        csv_data.append(
+            pd.DataFrame(
+                {
+                    col: x,
+                    target_col: y,
+                    "utc_ts": df["utc_ts"],
+                    "local_ts": df["local_ts"],
+                }
+            )
+        )
+    fig.update_layout(
+        title=f"Overlay: {', '.join(feature_cols)} vs. {target_col}{title_suffix}",
+        xaxis_title="Feature Value",
+        yaxis_title=target_col,
+        legend_title="Feature",
+        template="plotly_white",
+        height=700,
+        width=1100,
+    )
+    html_path = os.path.join(output_dir, f"{prefix}.html")
+    png_path = os.path.join(output_dir, f"{prefix}.png")
+    csv_path = os.path.join(output_dir, f"{prefix}.csv")
+    fig.write_html(html_path)
+    fig.write_image(png_path, scale=2)
+    pd.concat(csv_data, axis=1).to_csv(csv_path, index=False)
+    print(f"Saved overlay scatterplot: {html_path}, {png_path}, {csv_path}")

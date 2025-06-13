@@ -68,20 +68,22 @@ def main():
     for spp_loc in spp_loc_list:
         print(f"\n** Training model(s) for {spp_loc}")
         spp_dir = os.path.join(data_dir, spp_loc)
+        modeling_dir = os.path.join(spp_dir, "modeling")
 
-        # Create and initialize dataset (automatically finds final dataset)
-        study_dataset = DartSltExp0Dataset(spp_dir=spp_dir)
+        # Create and initialize dataset (automatically finds final dataset; creates modeling directory)
+        study_dataset = DartSltExp0Dataset(spp_dir=spp_dir, output_dir=modeling_dir)
 
-        # Initialize model trainer (automatically creates modeling directory)
+        # Initialize model trainer
         print(f"** Initializing model trainer for {spp_loc}")
         trainer = Exp0ModelTrainer(
             dataset=study_dataset,
-            spp_dir=spp_dir,
+            modeling_dir=modeling_dir,
             settlement_point=spp_loc,
             random_state=torch_seed,  # Use same seed as workflow
         )
 
         # Run complete experiment
+        # Complete experiment runs all model types for all hours for this dataset (location + location_type)
         all_results = trainer.run_experiment(
             model_types=model_types,
         )
