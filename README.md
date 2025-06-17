@@ -9,17 +9,19 @@
 
 ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market. This project analyzes and predicts the differences between day-ahead market (DAM) and real-time market (RTM) settlement prices in ERCOT, helping market participants understand price dynamics and make informed trading decisions.
 
+All data in this README are from the ERCOT Loading Zone (Houston) for the period 1/1/2024 - 6/4/205.
+
 **Key Features:**
-- Historical ERCOT price data collection via official API
+- Historical ERCOT price data collection via official API (See: https://www.ercot.com/services/mdt/data-portal)
 - Comprehensive exploratory data analysis of DART patterns
 - Time series feature engineering for price prediction
 - Machine learning models for DART forecasting
 - Rich visualization suite for market analysis
 
 
-## Dependent Variable
+## DART (Dependent Variable)
 
-## Temporal Dynamics
+### Temporal Dynamics
 
 ![DART Time Series](reports/figures/initial_dart_houston/dart_by_location_LZ_HOUSTON_LZ.png)
 
@@ -32,10 +34,9 @@ The raw and transformed DART series show:
 
 This helps reveal structure while preserving magnitude asymmetry.
 
-
 ---
 
-## Distributional Behavior
+### Distributional Behavior
 
 ![Raw vs SLT Distributions](reports/figures/initial_dart_houston/dart_distributions_LZ_HOUSTON_LZ.png)
 
@@ -53,7 +54,7 @@ Separate histograms of positive and negative SLT values (shown as absolute):
 
 ---
 
-## K-Means Cluster Analysis
+### K-Means Cluster Analysis
 
 To identify natural regime groupings:
 
@@ -73,7 +74,7 @@ When clustering the **signed SLT values together**:
 
 ---
 
-## Moving Window Behavior
+### Moving Window Behavior
 
 ![Rolling Statistics](reports/figures/initial_dart_houston/dart_slt_moving_window_stats_LZ_HOUSTON_LZ.png)
 
@@ -84,7 +85,7 @@ Using a 168-hour rolling window:
 
 ---
 
-## Cyclic and Frequency Structure
+### Cyclic and Frequency Structure
 
 ![SLT Spectrum](reports/figures/initial_dart_houston/dart_slt_power_spectrum_LZ_HOUSTON_LZ.png)
 
@@ -126,7 +127,7 @@ Spectral analysis of the DART sign sequence shows:
 
 ---
 
-## Sign Transition Behavior
+### Sign Transition Behavior
 
 ![Sign Transitions](reports/figures/initial_dart_houston/dart_slt_sign_transitions_LZ_HOUSTON_LZ.png)
 
@@ -135,7 +136,80 @@ Sign transition summary:
 - Most runs last just 1–3 hours, but longer runs do occur
 - Transitions often cluster at **1AM, 9AM, and 11PM**, possibly linked to load ramping or forecast updates
 
+---
+
 ## Independent Variables and EDA
+
+Summary:
+- We need to choose independent variables that conform with ERCOT operations to not "leak" the future into the modeling
+- For example, if we desire to use lagged DART values, we must use actual last known (and not merely 24-hours prior)
+- We use five categories of independent variables
+  - DART lagged prices
+  - DART historical rolling prices
+  - Load forecast (from 6AM daily report np3-565-cd)
+  - Solar power generation forecast (from 6AM daily report np4-745-cd)
+  - Wind power generation forecast (from 6AM daily report np4-742-cd)
+- We conduct basic EDA
+  - Summary time series plot
+  - Distributional analysis (looking at whether (signed) log transformation is of benefit)
+  - Cross-correlation analysis
+- Some of the EDA is on a per delivery hour basis (anticipating hourly modeling)
+- Some of the EDA considers data in the aggregate
+- The way we organize data at this stage is that each row of the data frame is a sample with a target and independent variables.  The target variable is DART SLT.  The independent variables as discussed and below. 
+
+### Time Series
+#### DART lagged prices
+
+![DART Lagged Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_lag_24hr_by_hour_LZ_HOUSTON_LZ.png)
+
+Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (DART SLT on Day T-2).
+- Although we label the lagged value as 24 hours, it should be clear that the actual value is 48 hours.  That is,
+we add an additional 24 hours lag to any and all lagged and rolling values.  This assure no "leakage" of future into the forecast.
+- Each point in each sub-plot represents one day.
+
+#### DART rolling prices
+![DART Rolling Prices Time Series](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_roll_mean_168hr_by_hour_LZ_HOUSTON_LZ.png)
+
+Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (same hour rolling one week lag (with additional 24 hours delay to prevent leakage)).
+- Each point in each sub-plot represents one day.
+
+#### Load forecast
+
+![Load Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/load_time_series.png)
+
+Load forecast (log transformed MWh) by weather zone.
+
+#### Solar power generation forecast
+
+![Solar Power Generation Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
+
+Solar power generation forecast (log transformed MWh) by geographic zone.  Zoomed in to show YTD 2025 System-wide value.
+
+#### Wind power generation forecast
+
+![Wind Power Generation Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/wind_time_series.png)
+
+Wind power generation forecast (log transformed MHw) by geographic zone.
+
+---
+
+### Distributional Analysis
+#### DART lagged prices
+#### DART rolling prices
+#### Load forecast
+#### Solar forecast
+#### Wind forecast
+
+---
+
+### Cross-correlation analysis
+#### Summary
+#### DART lagged and rolling prices
+#### Load forecast
+#### Solar forecast
+#### Wind forecast
+
+---
 
 ## Next Steps
 
