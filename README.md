@@ -143,7 +143,7 @@ Sign transition summary:
 Summary:
 - Select independent variables that conform with ERCOT operations
   - Do no "leak" the future into the modeling
-  - For example, if we desire to use lagged DART values, we must use actual last known (and not merely 24-hours prior)
+  - To use lagged DART values, we must use actual last known (and not merely 24-hours prior)
 - Define five categories of independent variables
   - DART lagged prices
   - DART historical rolling prices
@@ -166,7 +166,7 @@ Summary:
 
 ![DART Lagged Prices](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_lag_24hr_by_hour_LZ_HOUSTON_LZ.png)
 
-Per Delivery Hour plots of the DART SLT on Day T+1 vs DART SLT on Day T-2.
+Per Delivery Hour plots of  DART SLT on Day T+1 vs DART SLT same hour on Day T-2.
 - That is, although we label the lagged value as 24 hours, the actual value is 48 hours lagged.
 - This assure no "leakage" of future into the forecast.
 - Each point in each sub-plot represents one day.
@@ -174,7 +174,7 @@ Per Delivery Hour plots of the DART SLT on Day T+1 vs DART SLT on Day T-2.
 #### DART rolling prices
 ![DART Rolling Prices Time Series](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_roll_mean_168hr_by_hour_LZ_HOUSTON_LZ.png)
 
-Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (same hour rolling one week lag (with additional 24 hours delay to prevent leakage)).
+Per Delivery Hour plots of DART SLT on Day T+1 vs DART SLT same hour rolling one week lag (with additional 24 hour offset as above)).
 - Each point in each sub-plot represents one day.
 
 #### Load forecast
