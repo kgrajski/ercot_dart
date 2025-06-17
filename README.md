@@ -166,9 +166,9 @@ Summary:
 
 ![DART Lagged Prices](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_lag_24hr_by_hour_LZ_HOUSTON_LZ.png)
 
-Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (DART SLT on Day T-2).
-- Although we label the lagged value as 24 hours, it should be clear that the actual value is 48 hours.  That is,
-we add an additional 24 hours lag to any and all lagged and rolling values.  This assure no "leakage" of future into the forecast.
+Per Delivery Hour plots of the DART SLT on Day T+1 vs DART SLT on Day T-2.
+- That is, although we label the lagged value as 24 hours, the actual value is 48 hours lagged.
+- This assure no "leakage" of future into the forecast.
 - Each point in each sub-plot represents one day.
 
 #### DART rolling prices
