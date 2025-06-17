@@ -171,11 +171,15 @@ Per Delivery Hour plots of  DART SLT on Day T+1 vs DART SLT same hour on Day T-2
 - This assure no "leakage" of future into the forecast.
 - Each point in each sub-plot represents one day.
 
+---
+
 #### DART rolling prices
 ![DART Rolling Prices Time Series](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_roll_mean_168hr_by_hour_LZ_HOUSTON_LZ.png)
 
 Per Delivery Hour plots of DART SLT on Day T+1 vs DART SLT same hour rolling one week lag (with additional 24 hour offset as above)).
 - Each point in each sub-plot represents one day.
+
+---
 
 #### Load forecast
 
@@ -183,11 +187,15 @@ Per Delivery Hour plots of DART SLT on Day T+1 vs DART SLT same hour rolling one
 
 Load forecast (log transformed MWh) by weather zone.
 
+---
+
 #### Solar power generation forecast
 
 ![Solar Power Generation Forecast Prices](reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
 
 Solar power generation forecast (log transformed MWh) by geographic zone.  Zoomed in to show YTD 2025 System-wide value.
+
+---
 
 #### Wind power generation forecast
 
@@ -208,11 +216,15 @@ Load forecast distribution analysis for the Coast Zone.
 - During modeling, especially with non-parametric methods, we may simply Z-score transform.
 - Other transformations may be useful here, too, such as Box-Cox, etc.
 
+---
+
 ![Load Forecast Prices](reports/figures/initial_dart_houston/load_forecast_north_distribution_analysis.png)
 
 Load forecast distribution analysis for the North Zone.
 - The log transformation does lead to more Gaussian distribution in this example.
 - To be clear, managing variance remains an objective, irrespective of Gaussian or other distribution.
+
+---
 
 #### Solar power generation forecast
 
@@ -220,6 +232,8 @@ Load forecast distribution analysis for the North Zone.
 
 Solar power generation forecast distribution analysis System-wide.
 - Highly non-Gaussian even after log transformation.
+
+---
 
 #### Wind power generation forecast
 
@@ -238,20 +252,28 @@ Full cross-correlation matrix of dependent and independent variables.
 - In this figure, not all variables are visible.
 - For that we zoom on each category.
 
+---
+
 #### DART lagged and rolling prices
 ![DART Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_dart_LZ_HOUSTON_LZ.png)
 
 Closer look at cross-correlation matrix of DART SLT dependent and DART SLT independent variables.
+
+---
 
 #### Load forecast
 ![Load Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_load_LZ_HOUSTON_LZ.png)
 
 Closer look at cross-correlation matrix of DART SLT target variable and load forecast variables.
 
+---
+
 #### Solar forecast
 ![Solar Power Generation Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_solar_LZ_HOUSTON_LZ.png)
 
 Closer look at cross-correlation matrix of DART SLT target variable and solar power generation forecast variables.
+
+---
 
 #### Wind forecast
 ![Wind Power Generation Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_wind_LZ_HOUSTON_LZ.png)
