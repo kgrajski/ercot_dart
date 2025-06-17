@@ -13,6 +13,7 @@ from src.data.ercot.database import DatabaseProcessor
 from src.features.ercot.exp_dataset import ExpDataset
 from src.features.ercot.visualization import plot_dart_slt_vs_features_by_hour
 from src.features.ercot.visualization import plot_feature_boxplots
+from src.features.ercot.visualization import plot_feature_cross_correlation_heatmap
 from src.features.ercot.visualization import plot_feature_distribution_analysis
 from src.features.ercot.visualization import plot_feature_distributions
 from src.features.ercot.visualization import plot_feature_qqplots
@@ -67,8 +68,8 @@ class Exp1Dataset(ExpDataset):
         # - 25hr lag: 1 hour before same hour, previous day (e.g., 5 AM yesterday)
         # - 26hr lag: 2 hours before same hour, previous day (e.g., 4 AM yesterday)
         # - 168hr lag: Same hour, previous week (weekly patterns)
-        self.lag_hours = [24, 25, 26, 168]  # 1 day, 1 day + 1hr, 1 day + 2hr, 1 week
-        self.roll_hours = [7 * 24, 14 * 24]  # 1 day, 1 week
+        self.lag_hours = [24, 25, 26, 27, 168]
+        self.roll_hours = [7 * 24, 14 * 24, 21 * 24]
 
         # Variable definitions
         self.dependent_vars = ["dart_slt"]  # Target variable for modeling
@@ -635,6 +636,7 @@ class Exp1Dataset(ExpDataset):
                     ],
                 ),
             ]
+
             for category, feature_cols in categories:
                 if not feature_cols:
                     continue
@@ -698,6 +700,17 @@ class Exp1Dataset(ExpDataset):
                         independent_vars=feature_cols,
                         title_suffix=f" - {category.title()} Features - {location} ({location_type})",
                     )
+
+            # Add cross-correlation heatmap for all relevant features
+            from src.features.ercot.visualization import (
+                plot_feature_cross_correlation_heatmap,
+            )
+
+            plot_feature_cross_correlation_heatmap(
+                group,
+                output_dir=eda_dir,
+                title_suffix=f" - {location} ({location_type})",
+            )
 
     def finalize_study_dataset(self):
         """Finalize study dataset by cleaning and validating data.

@@ -5548,3 +5548,173 @@ def plot_feature_distribution_analysis(
     print(f"Saved PNG: {png_path}")
     if show:
         fig.show()
+
+
+def plot_feature_cross_correlation_heatmap(
+    df: pd.DataFrame,
+    output_dir: Path,
+    title_suffix: str = "",
+    top_n: int = 5,
+) -> None:
+    """
+    For each location/location_type group, compute and plot the cross-correlation heatmap
+    between dart_slt and all relevant independent variables (lagged/rolling, load, wind, solar),
+    as well as category-specific heatmaps for dart lag/roll, load, solar, and wind.
+    Print a summary to the screen and save .html, .png, and .csv outputs for each.
+    """
+    from pathlib import Path
+
+    import numpy as np
+    import pandas as pd
+    import plotly.express as px
+
+    def short_label(label):
+        return label.replace("generation", "gen").replace("forecast", "fcast")
+
+    # Helper to plot and save a heatmap for a given set of variables
+    def plot_heatmap(
+        data, corr, safe_id, location, location_type, category_suffix, title_suffix
+    ):
+        # Prepare display labels
+        display_labels = [short_label(v) for v in corr.columns]
+        corr_display = corr.copy()
+        corr_display.index = display_labels
+        corr_display.columns = display_labels
+        fig = px.imshow(
+            corr_display,
+            text_auto=".2f",  # Show values rounded to 2 decimals
+            color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            aspect="auto",
+            labels=dict(color="Correlation"),
+            title=f"Cross-Correlation Heatmap - {location} ({location_type}){title_suffix}",
+            height=900,
+            width=900,
+        )
+        fig.update_xaxes(tickangle=45)
+        fig.update_yaxes(tickangle=0)
+        fig.update_traces(
+            hovertemplate="Var1: %{x}<br>Var2: %{y}<br>Corr: %{z:.3f}<extra></extra>"
+        )
+        layout = get_professional_layout(
+            title=f"Cross-Correlation Heatmap - {location} ({location_type}){title_suffix}",
+            height=900,
+            width=900,
+            showlegend=False,
+        )
+        fig.update_layout(**layout)
+        # Save outputs directly to output_dir
+        base = f"cross_correlation_heatmap{category_suffix}_{safe_id}"
+        html_path = output_dir / f"{base}.html"
+        png_path = output_dir / f"{base}.png"
+        csv_path = output_dir / f"{base}.csv"
+        fig.write_html(str(html_path))
+        fig.write_image(str(png_path), scale=2)
+        corr.to_csv(csv_path)
+        print(f"  Saved heatmap: {html_path}, {png_path}, {csv_path}")
+
+    for (location, location_type), group in df.groupby(["location", "location_type"]):
+        safe_id = (
+            str(location).replace(" ", "_") + "_" + str(location_type).replace(" ", "_")
+        )
+
+        dep_var = "dart_slt"
+        # All relevant independents
+        ind_vars = [
+            c
+            for c in group.columns
+            if (
+                c.startswith("dart_slt_lag_")
+                or c.startswith("dart_slt_roll_")
+                or (c.startswith("load_forecast_") and c.endswith("_slt"))
+                or (c.startswith("wind_generation_") and c.endswith("_slt"))
+                or (c.startswith("solar_") and c.endswith("_slt"))
+            )
+        ]
+        all_vars = [dep_var] + ind_vars
+        data = group[all_vars].dropna()
+        if data.empty:
+            print(
+                f"[Cross-Corr] {location} ({location_type}): No data after dropna, skipping."
+            )
+            continue
+        corr = data.corr()
+        print(f"\n[Cross-Corr] {location} ({location_type})")
+        print(f"  Dependent: {dep_var}")
+        print(f"  Independents ({len(ind_vars)}): {ind_vars}")
+        abs_corr = corr[dep_var].abs().drop(dep_var)
+        top_corr = abs_corr.sort_values(ascending=False).head(top_n)
+        print(f"  Top {top_n} abs correlations with {dep_var}:")
+        for var, val in top_corr.items():
+            print(f"    {var}: {corr[dep_var][var]:.3f}")
+        # Full heatmap
+        plot_heatmap(data, corr, safe_id, location, location_type, "", title_suffix)
+
+        # Category-specific heatmaps
+        categories = [
+            (
+                "_dart",
+                [dep_var]
+                + [
+                    c
+                    for c in ind_vars
+                    if c.startswith("dart_slt_lag_") or c.startswith("dart_slt_roll_")
+                ],
+            ),
+            (
+                "_load",
+                [dep_var] + [c for c in ind_vars if c.startswith("load_forecast_")],
+            ),
+            ("_solar", [dep_var] + [c for c in ind_vars if c.startswith("solar_")]),
+            (
+                "_wind",
+                [dep_var] + [c for c in ind_vars if c.startswith("wind_generation_")],
+            ),
+        ]
+        for cat_suffix, cat_vars in categories:
+            cat_data = group[cat_vars].dropna()
+            if len(cat_vars) < 2 or cat_data.empty:
+                print(
+                    f"[Cross-Corr] {location} ({location_type}) {cat_suffix}: Not enough data/variables, skipping."
+                )
+                continue
+            cat_corr = cat_data.corr()
+            plot_heatmap(
+                cat_data,
+                cat_corr,
+                safe_id,
+                location,
+                location_type,
+                cat_suffix,
+                title_suffix,
+            )
+
+        # --- SOLAR TRIMMED: filter to nonzero solar values for solar-only heatmap ---
+        solar_vars = [c for c in ind_vars if c.startswith("solar_")]
+        solar_trimmed_vars = [dep_var] + solar_vars
+        if len(solar_vars) >= 1:
+            # Only keep rows where at least one solar var is nonzero
+            solar_trimmed_data = group[solar_trimmed_vars].dropna()
+            if not solar_trimmed_data.empty:
+                # Create a mask: at least one solar var is nonzero
+                nonzero_mask = solar_trimmed_data[solar_vars].abs().sum(axis=1) != 0
+                solar_trimmed_data = solar_trimmed_data[nonzero_mask]
+                if len(solar_trimmed_data) < 2:
+                    print(
+                        f"[Cross-Corr] {location} ({location_type}) _solar_trimmed: Not enough nonzero solar rows, skipping."
+                    )
+                else:
+                    print(
+                        f"[Cross-Corr] {location} ({location_type}) _solar_trimmed: {len(solar_trimmed_data)} rows after filtering nonzero solar."
+                    )
+                    solar_trimmed_corr = solar_trimmed_data.corr()
+                    plot_heatmap(
+                        solar_trimmed_data,
+                        solar_trimmed_corr,
+                        safe_id,
+                        location,
+                        location_type,
+                        "_solar_trimmed",
+                        title_suffix,
+                    )

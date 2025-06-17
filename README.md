@@ -1,5 +1,10 @@
 # ERCOT DART Price Prediction
 
+- [Project Overview](#project-overview)
+- [Dependent Variable](#dependent-variable)
+- [Independent Variables and EDA](#independent-variables-and-eda)
+- [Next Steps](#next-steps)
+
 ## Project Overview
 
 ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market. This project analyzes and predicts the differences between day-ahead market (DAM) and real-time market (RTM) settlement prices in ERCOT, helping market participants understand price dynamics and make informed trading decisions.
@@ -11,6 +16,8 @@ ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electrici
 - Machine learning models for DART forecasting
 - Rich visualization suite for market analysis
 
+
+## Dependent Variable
 
 ## Temporal Dynamics
 
@@ -128,7 +135,7 @@ Sign transition summary:
 - Most runs last just 1–3 hours, but longer runs do occur
 - Transitions often cluster at **1AM, 9AM, and 11PM**, possibly linked to load ramping or forecast updates
 
----
+## Independent Variables and EDA
 
 ## Next Steps
 
