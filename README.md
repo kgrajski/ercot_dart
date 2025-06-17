@@ -198,11 +198,24 @@ Wind power generation forecast (log transformed MHw) by geographic zone.
 ---
 
 ### Distributional Analysis
-#### DART lagged prices
-#### DART rolling prices
+
 #### Load forecast
-#### Solar forecast
-#### Wind forecast
+
+![Load Forecast Prices](reports/figures/initial_dart_houston/load_time_series.png)
+
+Load forecast (log transformed MWh) by weather zone.
+
+#### Solar power generation forecast
+
+![Solar Power Generation Forecast Prices](reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
+
+Solar power generation forecast (log transformed MWh) by geographic zone.  Zoomed in to show YTD 2025 System-wide value.
+
+#### Wind power generation forecast
+
+![Wind Power Generation Forecast Prices](reports/figures/initial_dart_houston/wind_time_series.png)
+
+Wind power generation forecast (log transformed MHw) by geographic zone.
 
 ---
 
