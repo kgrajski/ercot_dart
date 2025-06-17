@@ -179,7 +179,7 @@ Per Delivery Hour plots of DART SLT on Day T+1 vs DART SLT same hour rolling one
 
 #### Load forecast
 
-![Load Forecast Prices]reports/figures/initial_dart_houston/load_time_series.png)
+![Load Forecast Prices](reports/figures/initial_dart_houston/load_time_series.png)
 
 Load forecast (log transformed MWh) by weather zone.
 
