@@ -19,7 +19,7 @@ All data in this README are from the ERCOT Loading Zone (Houston) for the period
 - Rich visualization suite for market analysis
 
 
-## DART (Dependent Variable)
+## Dependent Variable
 
 ### Temporal Dynamics
 
@@ -141,8 +141,9 @@ Sign transition summary:
 ## Independent Variables and EDA
 
 Summary:
-- We need to choose independent variables that conform with ERCOT operations to not "leak" the future into the modeling
-- For example, if we desire to use lagged DART values, we must use actual last known (and not merely 24-hours prior)
+- We need to choose independent variables that conform with ERCOT operations
+  - Do no "leak" the future into the modeling
+  - For example, if we desire to use lagged DART values, we must use actual last known (and not merely 24-hours prior)
 - We use five categories of independent variables
   - DART lagged prices
   - DART historical rolling prices
@@ -160,7 +161,7 @@ Summary:
 ### Time Series
 #### DART lagged prices
 
-![DART Lagged Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_lag_24hr_by_hour_LZ_HOUSTON_LZ.png)
+![DART Lagged Prices](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_lag_24hr_by_hour_LZ_HOUSTON_LZ.png)
 
 Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (DART SLT on Day T-2).
 - Although we label the lagged value as 24 hours, it should be clear that the actual value is 48 hours.  That is,
@@ -168,26 +169,26 @@ we add an additional 24 hours lag to any and all lagged and rolling values.  Thi
 - Each point in each sub-plot represents one day.
 
 #### DART rolling prices
-![DART Rolling Prices Time Series](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_roll_mean_168hr_by_hour_LZ_HOUSTON_LZ.png)
+![DART Rolling Prices Time Series](reports/figures/initial_dart_houston/dart_slt_vs_dart_slt_roll_mean_168hr_by_hour_LZ_HOUSTON_LZ.png)
 
 Per Delivery Hour plots of the dependent variable (DART SLT on Day T+1) vs independent variable (same hour rolling one week lag (with additional 24 hours delay to prevent leakage)).
 - Each point in each sub-plot represents one day.
 
 #### Load forecast
 
-![Load Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/load_time_series.png)
+![Load Forecast Prices]reports/figures/initial_dart_houston/load_time_series.png)
 
 Load forecast (log transformed MWh) by weather zone.
 
 #### Solar power generation forecast
 
-![Solar Power Generation Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
+![Solar Power Generation Forecast Prices](reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
 
 Solar power generation forecast (log transformed MWh) by geographic zone.  Zoomed in to show YTD 2025 System-wide value.
 
 #### Wind power generation forecast
 
-![Wind Power Generation Forecast Prices](/Users/kag/Documents/Projects/ercot_dart/reports/figures/initial_dart_houston/wind_time_series.png)
+![Wind Power Generation Forecast Prices](reports/figures/initial_dart_houston/wind_time_series.png)
 
 Wind power generation forecast (log transformed MHw) by geographic zone.
 
