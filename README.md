@@ -239,7 +239,7 @@ Full cross-correlation matrix of dependent and independent variables.
 - For that we zoom on each category.
 
 #### DART lagged and rolling prices
-![DART Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_LZ_HOUSTON_LZ.png)
+![DART Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_dart_LZ_HOUSTON_LZ.png)
 
 Closer look at cross-correlation matrix of DART SLT dependent and DART SLT independent variables.
 
