@@ -4338,7 +4338,7 @@ def plot_dart_slt_vs_features_by_hour(
         )
 
         # Create subdirectory for this settlement point
-        point_output_dir = output_dir / safe_identifier
+        point_output_dir = output_dir
         point_output_dir.mkdir(parents=True, exist_ok=True)
 
         # For each independent variable, create a separate plot
@@ -4652,7 +4652,7 @@ def plot_overlay_scatter(
     feature_cols,
     target_col,
     output_dir,
-    prefix,
+    prefix="features",
     transform_fn=None,
     sample_frac=1.0,
     title_suffix="",
@@ -4698,19 +4698,853 @@ def plot_overlay_scatter(
                 }
             )
         )
-    fig.update_layout(
-        title=f"Overlay: {', '.join(feature_cols)} vs. {target_col}{title_suffix}",
-        xaxis_title="Feature Value",
-        yaxis_title=target_col,
-        legend_title="Feature",
-        template="plotly_white",
+    # Use professional layout and legend position
+    layout = get_professional_layout(
+        title=f"{prefix.title()} Overlay Scatter{title_suffix}",
         height=700,
         width=1100,
+        showlegend=True,
+        legend_position="external_right",
     )
-    html_path = os.path.join(output_dir, f"{prefix}.html")
-    png_path = os.path.join(output_dir, f"{prefix}.png")
-    csv_path = os.path.join(output_dir, f"{prefix}.csv")
+    fig.update_layout(**layout)
+    fig.update_xaxes(title_text="Feature Value")
+    fig.update_yaxes(title_text=target_col)
+    # Save outputs
+    html_path = os.path.join(output_dir, f"{prefix}_overlay_scatter.html")
+    png_path = os.path.join(output_dir, f"{prefix}_overlay_scatter.png")
+    csv_path = os.path.join(output_dir, f"{prefix}_overlay_scatter.csv")
     fig.write_html(html_path)
     fig.write_image(png_path, scale=2)
     pd.concat(csv_data, axis=1).to_csv(csv_path, index=False)
     print(f"Saved overlay scatterplot: {html_path}, {png_path}, {csv_path}")
+
+
+def plot_feature_qqplots(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: Path,
+    title_suffix: str = "",
+) -> None:
+    """Create Q-Q plots for normality assessment of a feature's raw and signed log transformed distributions."""
+    df = df.copy()
+    # Remove NaN values for statistics
+    raw_clean = (
+        df[feature_col.replace("_slt", "")].dropna()
+        if feature_col.endswith("_slt")
+        else df[feature_col].dropna()
+    )
+    slt_clean = df[feature_col].dropna()
+    if len(raw_clean) < 10 or len(slt_clean) < 10:
+        print(f"Warning: Insufficient data for {feature_col}, skipping")
+        return
+    safe_filename = feature_col.replace(" ", "_").replace("/", "_")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        shared_xaxes=False,
+        horizontal_spacing=0.15,
+        subplot_titles=[
+            f"Raw {feature_col.replace('_slt','')} Q-Q Plot{title_suffix}",
+            f"Signed Log Transformed {feature_col} Q-Q Plot{title_suffix}",
+        ],
+    )
+    # Q-Q for raw
+    (osm_raw, osr_raw), (slope_raw, intercept_raw, r_raw) = stats.probplot(
+        raw_clean, dist="norm", plot=None
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_raw,
+            y=osr_raw,
+            mode="markers",
+            name="Raw Data",
+            marker=dict(color=SEMANTIC_COLORS["positive"], size=4, opacity=0.7),
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    line_x = np.array([osm_raw.min(), osm_raw.max()])
+    line_y = slope_raw * line_x + intercept_raw
+    fig.add_trace(
+        go.Scatter(
+            x=line_x,
+            y=line_y,
+            mode="lines",
+            name=f"Raw Normal Line (R²={r_raw**2:.3f})",
+            line=dict(color=SEMANTIC_COLORS["positive"], width=3, dash="dash"),
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    # Q-Q for slt
+    (osm_slt, osr_slt), (slope_slt, intercept_slt, r_slt) = stats.probplot(
+        slt_clean, dist="norm", plot=None
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_slt,
+            y=osr_slt,
+            mode="markers",
+            name="SLT Data",
+            marker=dict(color=SEMANTIC_COLORS["negative"], size=4, opacity=0.7),
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+    line_x_slt = np.array([osm_slt.min(), osm_slt.max()])
+    line_y_slt = slope_slt * line_x_slt + intercept_slt
+    fig.add_trace(
+        go.Scatter(
+            x=line_x_slt,
+            y=line_y_slt,
+            mode="lines",
+            name=f"SLT Normal Line (R²={r_slt**2:.3f})",
+            line=dict(color=SEMANTIC_COLORS["negative"], width=3, dash="dash"),
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+    professional_title = f"Q-Q Plot Analysis - {feature_col}{title_suffix}"
+    layout = get_professional_layout(
+        title=professional_title,
+        height=600,
+        showlegend=True,
+        legend_position="upper_left",
+    )
+    fig.update_layout(**layout)
+    apply_professional_axis_styling(fig, rows=1, cols=2)
+    fig.update_yaxes(title_text="Sample Quantiles", row=1, col=1)
+    fig.update_yaxes(title_text="Sample Quantiles", row=1, col=2)
+    fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=1)
+    fig.update_xaxes(title_text="Theoretical Normal Quantiles", row=1, col=2)
+    output_path = output_dir / f"{feature_col}_qqplots.html"
+    fig.write_html(output_path)
+    png_path = output_dir / f"{feature_col}_qqplots.png"
+    fig.write_image(png_path, width=1200, height=600, scale=2)
+    stats_df = pd.DataFrame(
+        [
+            {
+                "Type": "Raw",
+                "Count": len(raw_clean),
+                "R_squared": r_raw**2,
+                "Slope": slope_raw,
+                "Intercept": intercept_raw,
+                "Correlation": r_raw,
+            },
+            {
+                "Type": "SLT",
+                "Count": len(slt_clean),
+                "R_squared": r_slt**2,
+                "Slope": slope_slt,
+                "Intercept": intercept_slt,
+                "Correlation": r_slt,
+            },
+        ]
+    )
+    stats_path = output_dir / f"{feature_col}_qqplot_stats.csv"
+    stats_df.to_csv(stats_path, index=False)
+
+
+def plot_feature_boxplots(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: Path,
+    title_suffix: str = "",
+) -> None:
+    """Create box plot visualization of a feature's raw and signed log transformed distributions."""
+    df = df.copy()
+    raw_data = (
+        df[feature_col.replace("_slt", "")].dropna()
+        if feature_col.endswith("_slt")
+        else df[feature_col].dropna()
+    )
+    slt_data = df[feature_col].dropna()
+    if len(raw_data) < 10 or len(slt_data) < 10:
+        print(f"Warning: Insufficient data for {feature_col}, skipping")
+        return
+    safe_filename = feature_col.replace(" ", "_").replace("/", "_")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        shared_yaxes=False,
+        horizontal_spacing=0.15,
+        subplot_titles=[
+            f"Raw {feature_col.replace('_slt','')} Box Plot{title_suffix}",
+            f"Signed Log Transformed {feature_col} Box Plot{title_suffix}",
+        ],
+    )
+    fig.add_trace(
+        go.Box(
+            y=raw_data,
+            name="Raw",
+            marker_color=SEMANTIC_COLORS["positive"],
+            line=dict(color=SEMANTIC_COLORS["positive"], width=2),
+            boxpoints="outliers",
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Box(
+            y=slt_data,
+            name="SLT",
+            marker_color=SEMANTIC_COLORS["negative"],
+            line=dict(color=SEMANTIC_COLORS["negative"], width=2),
+            boxpoints="outliers",
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+    professional_title = f"Box Plot Analysis - {feature_col}{title_suffix}"
+    layout = get_professional_layout(
+        title=professional_title,
+        height=600,
+        showlegend=True,
+        legend_position="upper_right",
+    )
+    fig.update_layout(**layout)
+    apply_professional_axis_styling(fig, rows=1, cols=2)
+    fig.update_yaxes(title_text="Raw Value", row=1, col=1)
+    fig.update_yaxes(title_text="Signed Log Value", row=1, col=2)
+    fig.update_xaxes(title_text="Data Type", row=1, col=1)
+    fig.update_xaxes(title_text="Data Type", row=1, col=2)
+    output_path = output_dir / f"{feature_col}_boxplots.html"
+    fig.write_html(output_path)
+    png_path = output_dir / f"{feature_col}_boxplots.png"
+    fig.write_image(png_path, width=1200, height=600, scale=2)
+    raw_stats = raw_data.describe()
+    slt_stats = slt_data.describe()
+    box_stats = [
+        {
+            "Type": "Raw",
+            "Count": raw_stats["count"],
+            "Mean": raw_stats["mean"],
+            "Std": raw_stats["std"],
+            "Min": raw_stats["min"],
+            "Q1": raw_stats["25%"],
+            "Median": raw_stats["50%"],
+            "Q3": raw_stats["75%"],
+            "Max": raw_stats["max"],
+            "IQR": raw_stats["75%"] - raw_stats["25%"],
+        },
+        {
+            "Type": "SLT",
+            "Count": slt_stats["count"],
+            "Mean": slt_stats["mean"],
+            "Std": slt_stats["std"],
+            "Min": slt_stats["min"],
+            "Q1": slt_stats["25%"],
+            "Median": slt_stats["50%"],
+            "Q3": slt_stats["75%"],
+            "Max": slt_stats["max"],
+            "IQR": slt_stats["75%"] - slt_stats["25%"],
+        },
+    ]
+    box_stats_df = pd.DataFrame(box_stats)
+    stats_path = output_dir / f"{feature_col}_boxplot_stats.csv"
+    box_stats_df.to_csv(stats_path, index=False)
+
+
+def plot_feature_distributions(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: Path,
+    title_suffix: str = "",
+) -> None:
+    """Create histogram visualization of a feature's raw and signed log transformed distributions."""
+    df = df.copy()
+    raw_data = (
+        df[feature_col.replace("_slt", "")].dropna()
+        if feature_col.endswith("_slt")
+        else df[feature_col].dropna()
+    )
+    slt_data = df[feature_col].dropna()
+    if len(raw_data) < 10 or len(slt_data) < 10:
+        print(f"Warning: Insufficient data for {feature_col}, skipping")
+        return
+    safe_filename = feature_col.replace(" ", "_").replace("/", "_")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=False,
+        vertical_spacing=0.25,
+        subplot_titles=[
+            f"Raw {feature_col.replace('_slt','')} Distribution{title_suffix}",
+            f"Signed Log Transformed {feature_col} Distribution{title_suffix}",
+        ],
+    )
+    # Raw
+    mu_raw, std_raw = stats.norm.fit(raw_data)
+    fig.add_trace(
+        go.Histogram(
+            x=raw_data,
+            name="Raw Histogram",
+            nbinsx=120,
+            histnorm="probability density",
+            opacity=0.7,
+            marker_color=SEMANTIC_COLORS["positive_fill"],
+            marker_line=dict(width=1, color=SEMANTIC_COLORS["positive"]),
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    x_range_raw = np.linspace(raw_data.min(), raw_data.max(), 100)
+    normal_curve_raw = stats.norm.pdf(x_range_raw, mu_raw, std_raw)
+    fig.add_trace(
+        go.Scatter(
+            x=x_range_raw,
+            y=normal_curve_raw,
+            mode="lines",
+            name=f"Raw Normal Fit (μ={mu_raw:.2f}, σ={std_raw:.2f})",
+            line=dict(color=SEMANTIC_COLORS["positive"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    # SLT
+    mu_slt, std_slt = stats.norm.fit(slt_data)
+    fig.add_trace(
+        go.Histogram(
+            x=slt_data,
+            name="SLT Histogram",
+            nbinsx=120,
+            histnorm="probability density",
+            opacity=0.7,
+            marker_color=SEMANTIC_COLORS["negative_fill"],
+            marker_line=dict(width=1, color=SEMANTIC_COLORS["negative"]),
+            showlegend=True,
+        ),
+        row=2,
+        col=1,
+    )
+    x_range_slt = np.linspace(slt_data.min(), slt_data.max(), 100)
+    normal_curve_slt = stats.norm.pdf(x_range_slt, mu_slt, std_slt)
+    fig.add_trace(
+        go.Scatter(
+            x=x_range_slt,
+            y=normal_curve_slt,
+            mode="lines",
+            name=f"SLT Normal Fit (μ={mu_slt:.2f}, σ={std_slt:.2f})",
+            line=dict(color=SEMANTIC_COLORS["negative"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=2,
+        col=1,
+    )
+    percentiles_raw = {
+        k: np.percentile(raw_data, v)
+        for k, v in zip(["67th", "90th", "95th", "99th"], [67, 90, 95, 99])
+    }
+    percentiles_slt = {
+        k: np.percentile(slt_data, v)
+        for k, v in zip(["67th", "90th", "95th", "99th"], [67, 90, 95, 99])
+    }
+    stats_list = [
+        {
+            "Type": "Raw",
+            "Count": len(raw_data),
+            "Mean": mu_raw,
+            "Std": std_raw,
+            **{f"{k}_Percentile": v for k, v in percentiles_raw.items()},
+            "Min": raw_data.min(),
+            "Max": raw_data.max(),
+        },
+        {
+            "Type": "SLT",
+            "Count": len(slt_data),
+            "Mean": mu_slt,
+            "Std": std_slt,
+            **{f"{k}_Percentile": v for k, v in percentiles_slt.items()},
+            "Min": slt_data.min(),
+            "Max": slt_data.max(),
+        },
+    ]
+    professional_title = f"Distribution Analysis - {feature_col}{title_suffix}"
+    layout = get_professional_layout(
+        title=professional_title,
+        height=800,
+        showlegend=True,
+        legend_position="upper_right",
+    )
+    fig.update_layout(**layout)
+    apply_professional_axis_styling(fig, rows=2, cols=1)
+    fig.update_yaxes(title_text="Probability Density", row=1, col=1)
+    fig.update_yaxes(title_text="Probability Density", row=2, col=1)
+    fig.update_xaxes(title_text="Raw Value", row=1, col=1)
+    fig.update_xaxes(title_text="Signed Log Value", row=2, col=1)
+    output_path = output_dir / f"{feature_col}_distributions.html"
+    fig.write_html(output_path)
+    png_path = output_dir / f"{feature_col}_distributions.png"
+    fig.write_image(png_path, width=1200, height=800, scale=2)
+    stats_df = pd.DataFrame(stats_list)
+    stats_path = output_dir / f"{feature_col}_distribution_stats.csv"
+    stats_df.to_csv(stats_path, index=False)
+
+
+def plot_feature_slt_bimodal(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: str,
+    title_suffix: str = "",
+) -> None:
+    """Create bimodal distribution visualization for a feature using signed log transform.
+
+    Args:
+        df: DataFrame containing feature data
+        feature_col: Name of the feature column to plot
+        output_dir: Directory to save the plot
+        title_suffix: Optional suffix to add to the plot title
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create subplots for raw and transformed distributions
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=(
+            f"Raw {feature_col} Distribution",
+            f"Signed Log Transformed {feature_col} Distribution",
+        ),
+        vertical_spacing=0.1,
+    )
+
+    # Add raw distribution
+    fig.add_trace(
+        go.Histogram(
+            x=df[feature_col],
+            name=f"Raw {feature_col}",
+            marker_color=COLOR_PALETTE["primary"],
+            opacity=0.7,
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Add transformed distribution
+    fig.add_trace(
+        go.Histogram(
+            x=df[feature_col],  # Already transformed
+            name=f"Transformed {feature_col}",
+            marker_color=COLOR_PALETTE["secondary"],
+            opacity=0.7,
+        ),
+        row=2,
+        col=1,
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f"Distribution Analysis{title_suffix}",
+        xaxis_title="Value",
+        yaxis_title="Frequency",
+        showlegend=True,
+        height=800,
+    )
+
+    # Apply professional styling
+    apply_professional_styling(fig)
+
+    # Save plot
+    output_file = os.path.join(output_dir, f"{feature_col}_bimodal.html")
+    fig.write_html(output_file)
+    print(f"Saved bimodal distribution plot: {output_file}")
+
+
+def plot_feature_slt_time_series(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: str,
+    title_suffix: str = "",
+) -> None:
+    """Create time series visualization for a feature using signed log transform.
+
+    Args:
+        df: DataFrame containing feature data
+        feature_col: Name of the feature column to plot
+        output_dir: Directory to save the plot
+        title_suffix: Optional suffix to add to the plot title
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create subplots for raw and transformed time series
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=(
+            f"Raw {feature_col} Time Series",
+            f"Signed Log Transformed {feature_col} Time Series",
+        ),
+        vertical_spacing=0.1,
+    )
+
+    # Add raw time series
+    fig.add_trace(
+        go.Scatter(
+            x=df["utc_ts"],
+            y=df[feature_col],
+            mode="lines",
+            name=f"Raw {feature_col}",
+            line=dict(color=COLOR_PALETTE["primary"]),
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Add transformed time series
+    fig.add_trace(
+        go.Scatter(
+            x=df["utc_ts"],
+            y=df[feature_col],  # Already transformed
+            mode="lines",
+            name=f"Transformed {feature_col}",
+            line=dict(color=COLOR_PALETTE["secondary"]),
+        ),
+        row=2,
+        col=1,
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f"Time Series Analysis{title_suffix}",
+        xaxis_title="Time",
+        yaxis_title="Value",
+        showlegend=True,
+        height=800,
+    )
+
+    # Apply professional styling
+    apply_professional_styling(fig)
+
+    # Save plot
+    output_file = os.path.join(output_dir, f"{feature_col}_time_series.html")
+    fig.write_html(output_file)
+    print(f"Saved time series plot: {output_file}")
+
+
+def plot_feature_time_series(
+    df: pd.DataFrame,
+    feature_cols: list,
+    output_dir: str,
+    prefix: str = "features",
+    title_suffix: str = "",
+) -> None:
+    """Create time series visualization overlaying multiple features.
+
+    Args:
+        df: DataFrame containing feature data
+        feature_cols: List of feature column names to plot
+        output_dir: Directory to save the plot
+        prefix: Short string for output filename (e.g., category)
+        title_suffix: Optional suffix to add to the plot title
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    fig = go.Figure()
+    for col in feature_cols:
+        fig.add_trace(
+            go.Scatter(
+                x=df["utc_ts"],
+                y=df[col],
+                name=col,
+                mode="lines",
+            )
+        )
+
+    # Get professional layout with increased height and bottom legend
+    layout = get_professional_layout(
+        title=f"{prefix.title()} Time Series{title_suffix}",
+        height=800,  # Increased height
+        showlegend=True,
+        legend_position="bottom",  # Spread legend along bottom
+    )
+    fig.update_layout(**layout)
+    apply_professional_axis_styling(fig)
+
+    # Save HTML plot
+    html_file = os.path.join(output_dir, f"{prefix}_time_series.html")
+    fig.write_html(html_file)
+    print(f"Saved time series overlay plot: {html_file}")
+
+    # Save PNG plot
+    png_file = os.path.join(output_dir, f"{prefix}_time_series.png")
+    fig.write_image(png_file)
+    print(f"Saved time series overlay plot: {png_file}")
+
+    # Save CSV data
+    csv_file = os.path.join(output_dir, f"{prefix}_time_series.csv")
+    df[["utc_ts"] + feature_cols].to_csv(csv_file, index=False)
+    print(f"Saved time series overlay plot: {csv_file}")
+
+
+def plot_feature_distribution_analysis(
+    df: pd.DataFrame,
+    feature_col: str,
+    output_dir: str,
+    title: str = None,
+    height: int = 1200,
+    width: int = 1000,
+    show: bool = False,
+    save_subplot_csv: bool = False,
+    ignore_zeros: bool = False,
+) -> None:
+    """
+    Create a comprehensive distribution analysis plot for a feature.
+    Layout: 3 rows x 2 columns
+    Row 1: Histograms (raw and transformed)
+    Row 2: Boxplots (raw and transformed)
+    Row 3: Q-Q plots (raw and transformed)
+    Optionally save each subplot's data as a .csv file (save_subplot_csv=True).
+    Always saves the main .html, .png, and summary statistics .csv.
+    If ignore_zeros is True and feature_col starts with 'solar_', zero values are excluded from the plots (but not from the dataset).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    raw_col = feature_col
+    slt_col = f"{feature_col}_slt"
+    if raw_col not in df.columns or slt_col not in df.columns:
+        print(
+            f"Warning: Missing data for {feature_col}. Skipping distribution analysis."
+        )
+        return
+    raw_data = df[raw_col].dropna()
+    slt_data = df[slt_col].dropna()
+    # Only filter zeros for solar features if requested
+    if ignore_zeros and feature_col.startswith("solar_"):
+        raw_data = raw_data[raw_data != 0]
+        slt_data = slt_data[slt_data != 0]
+    if len(raw_data) < 2 or len(slt_data) < 2:
+        print(
+            f"Warning: Insufficient data for {feature_col}. Skipping distribution analysis."
+        )
+        return
+    raw_mean = raw_data.mean()
+    raw_std = raw_data.std()
+    slt_mean = slt_data.mean()
+    slt_std = slt_data.std()
+    fig = make_subplots(
+        rows=3,
+        cols=2,
+        subplot_titles=(
+            f"Raw {feature_col} Distribution",
+            f"Transformed {feature_col} Distribution",
+            f"Raw {feature_col} Boxplot",
+            f"Transformed {feature_col} Boxplot",
+            f"Raw {feature_col} Q-Q Plot",
+            f"Transformed {feature_col} Q-Q Plot",
+        ),
+        vertical_spacing=0.13,  # more space between rows
+        horizontal_spacing=0.13,  # more space between columns
+    )
+    # Row 1: Histograms
+    # 1.1 Raw data histogram with Gaussian fit
+    fig.add_trace(
+        go.Histogram(
+            x=raw_data,
+            name="Raw Data",
+            histnorm="probability density",
+            marker_color=SEMANTIC_COLORS["positive_fill"],
+            opacity=0.7,
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    x_raw = np.linspace(raw_data.min(), raw_data.max(), 100)
+    y_raw = stats.norm.pdf(x_raw, raw_mean, raw_std)
+    fig.add_trace(
+        go.Scatter(
+            x=x_raw,
+            y=y_raw,
+            name="Gaussian Fit (Raw)",
+            line=dict(color=SEMANTIC_COLORS["positive"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    # 1.2 Transformed data histogram with Gaussian fit
+    fig.add_trace(
+        go.Histogram(
+            x=slt_data,
+            name="Transformed Data",
+            histnorm="probability density",
+            marker_color=SEMANTIC_COLORS["negative_fill"],
+            opacity=0.7,
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+    x_slt = np.linspace(slt_data.min(), slt_data.max(), 100)
+    y_slt = stats.norm.pdf(x_slt, slt_mean, slt_std)
+    fig.add_trace(
+        go.Scatter(
+            x=x_slt,
+            y=y_slt,
+            name="Gaussian Fit (Transformed)",
+            line=dict(color=SEMANTIC_COLORS["negative"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=1,
+        col=2,
+    )
+    # Row 2: Boxplots
+    fig.add_trace(
+        go.Box(
+            y=raw_data,
+            name="Raw Data",
+            marker_color=SEMANTIC_COLORS["positive"],
+            showlegend=False,
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Box(
+            y=slt_data,
+            name="Transformed Data",
+            marker_color=SEMANTIC_COLORS["negative"],
+            showlegend=False,
+        ),
+        row=2,
+        col=2,
+    )
+    # Row 3: Q-Q Plots
+    (osm_raw, osr_raw), (slope_raw, intercept_raw, r_raw) = stats.probplot(
+        raw_data, dist="norm", plot=None
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_raw,
+            y=osr_raw,
+            mode="markers",
+            name="Raw Data Q-Q",
+            marker=dict(color=SEMANTIC_COLORS["positive"], size=4),
+            showlegend=False,
+        ),
+        row=3,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_raw,
+            y=slope_raw * osm_raw + intercept_raw,
+            mode="lines",
+            name=f"Normal (R²={r_raw**2:.3f})",
+            line=dict(color=SEMANTIC_COLORS["positive"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=3,
+        col=1,
+    )
+    (osm_slt, osr_slt), (slope_slt, intercept_slt, r_slt) = stats.probplot(
+        slt_data, dist="norm", plot=None
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_slt,
+            y=osr_slt,
+            mode="markers",
+            name="Transformed Data Q-Q",
+            marker=dict(color=SEMANTIC_COLORS["negative"], size=4),
+            showlegend=False,
+        ),
+        row=3,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=osm_slt,
+            y=slope_slt * osm_slt + intercept_slt,
+            mode="lines",
+            name=f"Normal (R²={r_slt**2:.3f})",
+            line=dict(color=SEMANTIC_COLORS["negative"], width=2, dash="dash"),
+            showlegend=True,
+        ),
+        row=3,
+        col=2,
+    )
+    # Update layout
+    professional_title = title or f"Distribution Analysis: {feature_col}"
+    layout = get_professional_layout(
+        title=professional_title,
+        height=height,
+        width=width,
+        showlegend=True,
+        legend_position="external_right",
+    )
+    # Increase top and right margins for clarity
+    layout["margin"] = dict(t=120, b=60, l=60, r=180)
+    fig.update_layout(**layout)
+    # Update subplot title font size and spacing
+    fig.update_annotations(font_size=13)
+    # Update axes labels
+    fig.update_xaxes(title_text="Value", row=1, col=1)
+    fig.update_xaxes(title_text="Value", row=1, col=2)
+    fig.update_xaxes(title_text="Theoretical Quantiles", row=3, col=1)
+    fig.update_xaxes(title_text="Theoretical Quantiles", row=3, col=2)
+    fig.update_yaxes(title_text="Probability Density", row=1, col=1)
+    fig.update_yaxes(title_text="Probability Density", row=1, col=2)
+    fig.update_yaxes(title_text="Value", row=2, col=1)
+    fig.update_yaxes(title_text="Value", row=2, col=2)
+    fig.update_yaxes(title_text="Sample Quantiles", row=3, col=1)
+    fig.update_yaxes(title_text="Sample Quantiles", row=3, col=2)
+    if save_subplot_csv:
+        for row in range(1, 4):
+            for col in range(1, 3):
+                subplot_name = f"{feature_col}_row{row}_col{col}"
+                csv_path = os.path.join(output_dir, f"{subplot_name}.csv")
+                if row == 1:
+                    if col == 1:
+                        pd.DataFrame({"Value": raw_data}).to_csv(csv_path, index=False)
+                    else:
+                        pd.DataFrame({"Value": slt_data}).to_csv(csv_path, index=False)
+                elif row == 2:
+                    if col == 1:
+                        pd.DataFrame({"Value": raw_data}).to_csv(csv_path, index=False)
+                    else:
+                        pd.DataFrame({"Value": slt_data}).to_csv(csv_path, index=False)
+                elif row == 3:
+                    if col == 1:
+                        pd.DataFrame(
+                            {"Theoretical": osm_raw, "Sample": osr_raw}
+                        ).to_csv(csv_path, index=False)
+                    else:
+                        pd.DataFrame(
+                            {"Theoretical": osm_slt, "Sample": osr_slt}
+                        ).to_csv(csv_path, index=False)
+                print(f"Saved data: {csv_path}")
+    summary_stats = {
+        "Feature": feature_col,
+        "Raw_Count": len(raw_data),
+        "Raw_Mean": raw_mean,
+        "Raw_Std": raw_std,
+        "Transformed_Count": len(slt_data),
+        "Transformed_Mean": slt_mean,
+        "Transformed_Std": slt_std,
+        "Raw_Q_Q_R_squared": r_raw**2,
+        "Transformed_Q_Q_R_squared": r_slt**2,
+    }
+    stats_df = pd.DataFrame([summary_stats])
+    stats_path = os.path.join(output_dir, f"{feature_col}_distribution_stats.csv")
+    stats_df.to_csv(stats_path, index=False)
+    print(f"Saved statistics: {stats_path}")
+    html_path = os.path.join(output_dir, f"{feature_col}_distribution_analysis.html")
+    fig.write_html(html_path)
+    print(f"Saved distribution analysis: {html_path}")
+    png_path = os.path.join(output_dir, f"{feature_col}_distribution_analysis.png")
+    fig.write_image(png_path, width=width, height=height)
+    print(f"Saved PNG: {png_path}")
+    if show:
+        fig.show()

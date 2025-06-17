@@ -9,7 +9,7 @@ from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 
-def signed_log_transform(data):
+def signed_log_transform(data, ignore_zeros=False):
     """Apply signed logarithm transformation to price differences.
 
     The signed logarithm transformation is defined as:
@@ -18,7 +18,7 @@ def signed_log_transform(data):
     This transformation:
     - Preserves the sign of the input (positive stays positive, negative stays negative)
     - Compresses large values using logarithmic scaling
-    - Maps zero to zero
+    - Maps zero to zero (unless ignore_zeros=True, then maps zero to NaN)
     - Is symmetric: signed_log(-x) = -signed_log(x)
     - Properly handles missing values (NaN)
 
@@ -27,6 +27,7 @@ def signed_log_transform(data):
 
     Args:
         data: pandas Series or scalar value
+        ignore_zeros: If True, zero values are mapped to NaN (default: False)
 
     Returns:
         pandas Series (if input is Series) or scalar with same structure as input
@@ -39,13 +40,20 @@ def signed_log_transform(data):
         df["dart_transformed"] = signed_log_transform(df["dart"])
     """
     if isinstance(data, pd.Series):
-        # Pandas-native approach with proper NaN handling
-        return data.apply(
-            lambda x: np.sign(x) * np.log(1 + abs(x)) if pd.notna(x) else np.nan
-        )
+        if ignore_zeros:
+            return data.apply(
+                lambda x: np.sign(x) * np.log(1 + abs(x))
+                if pd.notna(x) and x != 0
+                else (np.nan if x == 0 else np.nan)
+            )
+        else:
+            return data.apply(
+                lambda x: np.sign(x) * np.log(1 + abs(x)) if pd.notna(x) else np.nan
+            )
     else:
-        # Handle scalar values
         if pd.notna(data):
+            if ignore_zeros and data == 0:
+                return np.nan
             return np.sign(data) * np.log(1 + abs(data))
         else:
             return np.nan

@@ -58,11 +58,11 @@ def main():
     print("\nGenerating independent variables...")
     exp1.generate_independent_vars()
 
-    print("\nRunning exploratory data analysis...")
-    exp1.run_eda()
-
     print("\nFinalizing study dataset...")
     exp1.finalize_study_dataset()
+
+    print("\nRunning exploratory data analysis...")
+    exp1.run_eda()
 
     print(f"\nTotal elapsed time:  %.4f seconds" % (time.perf_counter() - start_time))
     print("*** " + script_name + " - END ***")

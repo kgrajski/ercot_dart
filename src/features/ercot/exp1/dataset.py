@@ -1,12 +1,23 @@
 """Experiment 1 dataset implementation."""
 
 import os
+from pathlib import Path
 
 import holidays
+import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+from scipy import stats
 
 from src.data.ercot.database import DatabaseProcessor
 from src.features.ercot.exp_dataset import ExpDataset
+from src.features.ercot.visualization import plot_dart_slt_vs_features_by_hour
+from src.features.ercot.visualization import plot_feature_boxplots
+from src.features.ercot.visualization import plot_feature_distribution_analysis
+from src.features.ercot.visualization import plot_feature_distributions
+from src.features.ercot.visualization import plot_feature_qqplots
+from src.features.ercot.visualization import plot_feature_slt_bimodal
+from src.features.ercot.visualization import plot_feature_time_series
 from src.features.ercot.visualization import plot_overlay_scatter
 from src.features.utils import signed_log_transform
 
@@ -57,7 +68,7 @@ class Exp1Dataset(ExpDataset):
         # - 26hr lag: 2 hours before same hour, previous day (e.g., 4 AM yesterday)
         # - 168hr lag: Same hour, previous week (weekly patterns)
         self.lag_hours = [24, 25, 26, 168]  # 1 day, 1 day + 1hr, 1 day + 2hr, 1 week
-        self.roll_hours = [24, 168]  # 1 day, 1 week
+        self.roll_hours = [7 * 24, 14 * 24]  # 1 day, 1 week
 
         # Variable definitions
         self.dependent_vars = ["dart_slt"]  # Target variable for modeling
@@ -208,12 +219,25 @@ class Exp1Dataset(ExpDataset):
 
         self.study_data = df
 
-    def _add_dart_lagged_and_rolling_features(self, df):
+    def _add_dart_lagged_and_rolling_features(self, df, debug=False):
         """
         Add DART SLT lagged and rolling features to the DataFrame.
-        This logic is refactored from the previous _generate_independent_vars_single and
-        location-independent feature section.
+
+        For each row (target hour), lagged features are computed as the DART SLT value for the same hour
+        (and previous hours, as specified by self.lag_hours) from Day T-2. Rolling features are computed
+        as the mean and std of DART SLT for the same hour over the preceding N days (as specified by
+        self.roll_hours), using only data available up to Day T-2.
+
+        The key is that we are using the DART SLT values from Day T-2 to create lags and rolling features.
+        This is because we are predicting the DART SLT values for all of the hours of Day T, and the DART SLT values for Day T are not available until Day T+1.
+        So, we need to use the DART SLT values from Day T-2 to create lags and rolling features.
         """
+        import numpy as np
+        import pandas as pd
+
+        df = df.copy()
+        results = []
+
         # Location-independent features (day_of_week, end_of_hour, is_weekend, is_holiday)
         #
         # NOTE: It is safe to use day_of_week, is_weekend, and is_holiday as features for forecasting,
@@ -236,39 +260,66 @@ class Exp1Dataset(ExpDataset):
             "Created location-independent features: day_of_week, end_of_hour, is_weekend, is_holiday"
         )
 
-        # Location-dependent lagged and rolling features
-        results = []
+        # Location-dependent features (location, location_type)
+        #
+        # NOTE: It is safe to use location and location_type as features for forecasting,
+        # because these are fully determined by the delivery date and are known in advance for any
+        # forecast. There is no information leakage, as long as the location and location_type are fixed and public.
+
         for (location, location_type), group in df.groupby(
             ["location", "location_type"]
         ):
-            group = group.sort_values("utc_ts").reset_index(drop=True)
-            # Lagged features
-            for lag_h in self.lag_hours:
-                col_name = f"dart_slt_lag_{lag_h}hr"
-                group[col_name] = group["dart_slt"].shift(lag_h)
-            # Rolling features (shifted to end 24 hours before prediction time)
+            group = group.copy()
+            # Create a temporary timezone-naive utc_ts for processing
+            group["tmp_utc_ts_naive"] = pd.to_datetime(group["utc_ts"]).dt.tz_localize(
+                None
+            )
+            group["tmp_delivery_date"] = group["tmp_utc_ts_naive"].dt.date
+            group["tmp_feature_cutoff_ts"] = (
+                pd.to_datetime(group["tmp_delivery_date"])
+                - pd.Timedelta(days=2)
+                + pd.Timedelta(hours=23)
+            )
+            group = group.set_index("tmp_utc_ts_naive")
+
+            # LAGGED FEATURES
+            for lag in self.lag_hours:
+                lag_hours = lag + 24
+                lagged_ts = group.index - pd.Timedelta(hours=lag_hours)
+                group[f"dart_slt_lag_{lag}hr"] = group.reindex(lagged_ts)[
+                    "dart_slt"
+                ].values
+
+            # ROLLING FEATURES
             for roll_h in self.roll_hours:
-                roll_mean_col = f"dart_slt_roll_mean_{roll_h}hr"
-                group[roll_mean_col] = (
-                    group["dart_slt"]
-                    .shift(24)
-                    .rolling(window=roll_h, min_periods=1)
-                    .mean()
-                )
-                roll_sdev_col = f"dart_slt_roll_sdev_{roll_h}hr"
-                group[roll_sdev_col] = (
-                    group["dart_slt"]
-                    .shift(24)
-                    .rolling(window=roll_h, min_periods=1)
-                    .std()
-                )
+                window_days = roll_h // 24
+                mean_col = f"dart_slt_roll_mean_{roll_h}hr"
+                std_col = f"dart_slt_roll_sdev_{roll_h}hr"
+                group[mean_col] = np.nan
+                group[std_col] = np.nan
+
+                for idx, row in group.iterrows():
+                    cutoff = row["tmp_feature_cutoff_ts"]
+                    hour = idx.hour
+                    prev_hours = [
+                        idx - pd.Timedelta(days=d) for d in range(2, window_days + 2)
+                    ]
+                    prev_hours = [
+                        ts for ts in prev_hours if ts <= cutoff and ts in group.index
+                    ]
+                    vals = group.loc[prev_hours, "dart_slt"].values
+                    if len(vals) > 0:
+                        group.at[idx, mean_col] = np.mean(vals)
+                        group.at[idx, std_col] = np.std(vals)
+
+            group = group.reset_index(drop=True)
             results.append(group)
-        updated_df = pd.concat(results, ignore_index=True)
-        updated_df = updated_df.sort_values(
-            ["location", "location_type", "utc_ts"]
-        ).reset_index(drop=True)
-        print("Added DART SLT lagged and rolling features.")
-        return updated_df
+
+        df_out = pd.concat(results, ignore_index=True)
+        tmp_cols = [col for col in df_out.columns if col.startswith("tmp_")]
+        if not debug and tmp_cols:
+            df_out = df_out.drop(columns=tmp_cols)
+        return df_out
 
     def _add_load_features(self, df):
         """
@@ -345,22 +396,10 @@ class Exp1Dataset(ExpDataset):
                 context=f"load_forecast_{location}_{location_type}",
             )
 
-            # Create visualization for this location
-            safe_id = self._create_safe_identifier(location, location_type)
-            location_dir = os.path.join(self.output_dir, safe_id, "eda")
-            os.makedirs(location_dir, exist_ok=True)
-
-            feature_cols = [c for c in group.columns if c.startswith("load_forecast_")]
-            plot_overlay_scatter(
-                df=group,
-                feature_cols=feature_cols,
-                target_col="dart_slt",
-                output_dir=location_dir,
-                prefix="load_vs_dart_slt",
-                transform_fn=None,
-                sample_frac=1.0,
-                title_suffix=f" - {location} ({location_type})",
-            )
+            # Add signed log transform columns for load features
+            for col in group.columns:
+                if col.startswith("load_forecast_"):
+                    group[f"{col}_slt"] = signed_log_transform(group[col])
 
             results.append(group)
 
@@ -444,24 +483,10 @@ class Exp1Dataset(ExpDataset):
                 context=f"wind_generation_{location}_{location_type}",
             )
 
-            # Create visualization for this location
-            safe_id = self._create_safe_identifier(location, location_type)
-            location_dir = os.path.join(self.output_dir, safe_id, "eda")
-            os.makedirs(location_dir, exist_ok=True)
-
-            feature_cols = [
-                c for c in group.columns if c.startswith("wind_generation_")
-            ]
-            plot_overlay_scatter(
-                df=group,
-                feature_cols=feature_cols,
-                target_col="dart_slt",
-                output_dir=location_dir,
-                prefix="wind_vs_dart_slt",
-                transform_fn=None,
-                sample_frac=1.0,
-                title_suffix=f" - {location} ({location_type})",
-            )
+            # Add signed log transform columns for wind features
+            for col in group.columns:
+                if col.startswith("wind_generation_"):
+                    group[f"{col}_slt"] = signed_log_transform(group[col])
 
             results.append(group)
 
@@ -545,22 +570,10 @@ class Exp1Dataset(ExpDataset):
                 context=f"solar_generation_{location}_{location_type}",
             )
 
-            # Create visualization for this location
-            safe_id = self._create_safe_identifier(location, location_type)
-            location_dir = os.path.join(self.output_dir, safe_id, "eda")
-            os.makedirs(location_dir, exist_ok=True)
-
-            feature_cols = [c for c in group.columns if c.startswith("solar_")]
-            plot_overlay_scatter(
-                df=group,
-                feature_cols=feature_cols,
-                target_col="dart_slt",
-                output_dir=location_dir,
-                prefix="solar_vs_dart_slt",
-                transform_fn=None,
-                sample_frac=1.0,
-                title_suffix=f" - {location} ({location_type})",
-            )
+            # Add signed log transform columns for solar features
+            for col in group.columns:
+                if col.startswith("solar_"):
+                    group[f"{col}_slt"] = signed_log_transform(group[col])
 
             results.append(group)
 
@@ -581,11 +594,110 @@ class Exp1Dataset(ExpDataset):
         return df
 
     def run_eda(self):
-        """
-        Placeholder for exploratory data analysis and visualization for Exp1.
-        Implement new plots and analyses as new independent variables are added.
-        """
-        print("[TODO] Implement new EDA/visualization for Exp1 features.")
+        """Run exploratory data analysis and visualization for dataset features."""
+        if not hasattr(self, "study_data"):
+            raise ValueError(
+                "No study data available. Run generate_dependent_vars() and generate_independent_vars() first."
+            )
+        solar_threshold = 1.0
+        for (location, location_type), group in self.study_data.groupby(
+            ["location", "location_type"]
+        ):
+            safe_id = self._create_safe_identifier(location, location_type)
+            location_dir = Path(self.output_dir) / safe_id
+            eda_dir = location_dir / "eda"
+            eda_dir.mkdir(parents=True, exist_ok=True)
+
+            # Organize by independent variable category
+            categories = [
+                (
+                    "load",
+                    [
+                        c
+                        for c in group.columns
+                        if c.startswith("load_forecast_") and c.endswith("_slt")
+                    ],
+                ),
+                (
+                    "wind",
+                    [
+                        c
+                        for c in group.columns
+                        if c.startswith("wind_generation_") and c.endswith("_slt")
+                    ],
+                ),
+                (
+                    "solar",
+                    [
+                        c
+                        for c in group.columns
+                        if c.startswith("solar_") and c.endswith("_slt")
+                    ],
+                ),
+            ]
+            for category, feature_cols in categories:
+                if not feature_cols:
+                    continue
+                # Scatter plot (overlay all columns in this category) vs dart_slt
+                plot_overlay_scatter(
+                    group,
+                    feature_cols=feature_cols,
+                    target_col="dart_slt",
+                    output_dir=eda_dir,
+                    prefix=f"{category}_vs_target_{safe_id}",
+                    title_suffix=f" - {location} ({location_type})",
+                )
+
+                # Time series plot (overlay all columns in this category)
+                plot_feature_time_series(
+                    group,
+                    feature_cols=feature_cols,
+                    output_dir=eda_dir,
+                    prefix=category,
+                    title_suffix=f" - {location} ({location_type})",
+                )
+                # For each _slt feature, generate unified distribution analysis
+                for col in feature_cols:
+                    base_col = col[:-4] if col.endswith("_slt") else col
+                    if category == "solar":
+                        # For solar, threshold values below 1.0 to zero for EDA only
+                        group_eda = group.copy()
+                        group_eda[base_col] = group_eda[base_col].where(
+                            group_eda[base_col] >= solar_threshold, 0
+                        )
+                        group_eda[f"{base_col}_slt"] = group_eda[
+                            f"{base_col}_slt"
+                        ].where(group_eda[base_col] >= solar_threshold, 0)
+                        plot_feature_distribution_analysis(
+                            group_eda,
+                            feature_col=base_col,
+                            output_dir=eda_dir,
+                            title=f"{base_col} Distribution Analysis (Thresholded: {solar_threshold}) - {location} ({location_type})",
+                            ignore_zeros=True,
+                        )
+                    else:
+                        plot_feature_distribution_analysis(
+                            group,
+                            feature_col=base_col,
+                            output_dir=eda_dir,
+                            title=f"{base_col} Distribution Analysis - {location} ({location_type})",
+                        )
+
+            # Add EDA for lagged and rolling features (faceted by delivery hour)
+            lagged_cols = [c for c in group.columns if c.startswith("dart_slt_lag_")]
+            rolling_cols = [c for c in group.columns if c.startswith("dart_slt_roll_")]
+            for category, feature_cols in [
+                ("lagged", lagged_cols),
+                ("rolling", rolling_cols),
+            ]:
+                if feature_cols:
+                    plot_dart_slt_vs_features_by_hour(
+                        group,
+                        output_dir=eda_dir,
+                        dependent_vars=["dart_slt"],
+                        independent_vars=feature_cols,
+                        title_suffix=f" - {category.title()} Features - {location} ({location_type})",
+                    )
 
     def finalize_study_dataset(self):
         """Finalize study dataset by cleaning and validating data.
@@ -706,9 +818,7 @@ class Exp1Dataset(ExpDataset):
             location_dir = self.output_dir / safe_id
             location_dir.mkdir(parents=True, exist_ok=True)
 
-            final_dataset_file = (
-                location_dir / f"{self.final_dataset_prefix}_{safe_id}.csv"
-            )
+            final_dataset_file = location_dir / f"{self.final_dataset_prefix}.csv"
             df_clean.to_csv(final_dataset_file, index=False)
             print(f"  Saved final dataset: {final_dataset_file}")
 
