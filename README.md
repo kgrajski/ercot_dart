@@ -201,30 +201,62 @@ Wind power generation forecast (log transformed MHw) by geographic zone.
 
 #### Load forecast
 
-![Load Forecast Prices](reports/figures/initial_dart_houston/load_time_series.png)
+![Load Forecast Prices](reports/figures/load_forecast_coast_distribution_analysis.png)
 
-Load forecast (log transformed MWh) by weather zone.
+Load forecast distribution analysis for the Coast Zone.
+- The log transformation does not lead to more Gaussian distribution in this example.
+- During modeling, especially with non-parametric methods, we may simply Z-score transform.
+- Other transformations may be useful here, too, such as Box-Cox, etc.
+
+![Load Forecast Prices](reports/figures/initial_dart_houston/load_forecast_north_distribution_analysis.png)
+
+Load forecast distribution analysis for the North Zone.
+- The log transformation does lead to more Gaussian distribution in this example.
+- To be clear, managing variance remains an objective, irrespective of Gaussian or other distribution.
 
 #### Solar power generation forecast
 
-![Solar Power Generation Forecast Prices](reports/figures/initial_dart_houston/solar_time_series_zoomed_2025ytd.png)
+![Solar Power Generation Forecast Prices](reports/figures/initial_dart_houston/solar_STPPFSystemWide_distribution_analysis.png)
 
-Solar power generation forecast (log transformed MWh) by geographic zone.  Zoomed in to show YTD 2025 System-wide value.
+Solar power generation forecast distribution analysis System-wide.
+- Highly non-Gaussian even after log transformation.
 
 #### Wind power generation forecast
 
-![Wind Power Generation Forecast Prices](reports/figures/initial_dart_houston/wind_time_series.png)
+![Wind Power Generation Forecast Prices](reports/figures/initial_dart_houston/wind_generation_STWPFCoastal_distribution_analysis.png)
 
-Wind power generation forecast (log transformed MHw) by geographic zone.
+Wind power generation forecast distribution analysis System-wide.
+- Highly non-Gaussian even after log transformation.
 
 ---
 
 ### Cross-correlation analysis
 #### Summary
+![Full Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_LZ_HOUSTON_LZ.png)
+
+Full cross-correlation matrix of dependent and independent variables.
+- In this figure, not all variables are visible.
+- For that we zoom on each category.
+
 #### DART lagged and rolling prices
+![DART Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_LZ_HOUSTON_LZ.png)
+
+Closer look at cross-correlation matrix of DART SLT dependent and DART SLT independent variables.
+
 #### Load forecast
+![Load Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_load_LZ_HOUSTON_LZ.png)
+
+Closer look at cross-correlation matrix of DART SLT target variable and load forecast variables.
+
 #### Solar forecast
+![Solar Power Generation Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_solar_LZ_HOUSTON_LZ.png)
+
+Closer look at cross-correlation matrix of DART SLT target variable and solar power generation forecast variables.
+
 #### Wind forecast
+![Wind Power Generation Forecast Cross-correlation Matrix](reports/figures/initial_dart_houston/cross_correlation_heatmap_wind_LZ_HOUSTON_LZ.png)
+
+Closer look at cross-correlation matrix of DART SLT target variable and wind power generation forecast variables.
 
 ---
 
