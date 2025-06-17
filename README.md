@@ -141,22 +141,25 @@ Sign transition summary:
 ## Independent Variables and EDA
 
 Summary:
-- We need to choose independent variables that conform with ERCOT operations
+- Select independent variables that conform with ERCOT operations
   - Do no "leak" the future into the modeling
   - For example, if we desire to use lagged DART values, we must use actual last known (and not merely 24-hours prior)
-- We use five categories of independent variables
+- Define five categories of independent variables
   - DART lagged prices
   - DART historical rolling prices
   - Load forecast (from 6AM daily report np3-565-cd)
   - Solar power generation forecast (from 6AM daily report np4-745-cd)
   - Wind power generation forecast (from 6AM daily report np4-742-cd)
-- We conduct basic EDA
+- Initial EDA
   - Summary time series plot
   - Distributional analysis (looking at whether (signed) log transformation is of benefit)
   - Cross-correlation analysis
-- Some of the EDA is on a per delivery hour basis (anticipating hourly modeling)
-- Some of the EDA considers data in the aggregate
-- The way we organize data at this stage is that each row of the data frame is a sample with a target and independent variables.  The target variable is DART SLT.  The independent variables as discussed and below. 
+- Additional Notes
+  - Some of the EDA is on a per delivery hour basis (anticipating hourly modeling)
+  - Some of the EDA considers data in the aggregate
+  - How the data is organized here:
+    - Each row of the data frame is an independent sample with a target and independent variables.
+    - The target variable is DART SLT.  The independent variables as discussed and below. 
 
 ### Time Series
 #### DART lagged prices
