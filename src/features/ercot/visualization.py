@@ -6,13 +6,17 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import umap
 from plotly.subplots import make_subplots
 from scipy import stats
+from scipy.signal import spectrogram
 
 from src.features.utils import compute_kmeans_clustering
+from src.features.utils import compute_kmeans_clustering_multivariate
 from src.features.utils import compute_power_spectrum
+from src.features.utils import find_elbow_point
+from src.features.utils import signed_log_transform
 
 # =============================================================================
 # PROFESSIONAL STYLING INFRASTRUCTURE
@@ -2659,8 +2663,6 @@ def plot_dart_slt_spectrogram(
             window_size = min(168, len(point_clean) // 4)  # ~1 week or 1/4 of data
             overlap = window_size // 2  # 50% overlap
 
-            from scipy.signal import spectrogram
-
             frequencies, times_stft, Sxx = spectrogram(
                 point_clean["dart_slt"].values,
                 fs=sampling_freq_hz,
@@ -5125,7 +5127,7 @@ def plot_feature_slt_bimodal(
         go.Histogram(
             x=df[feature_col],
             name=f"Raw {feature_col}",
-            marker_color=COLOR_PALETTE["primary"],
+            marker_color=PROFESSIONAL_COLORS["primary"],
             opacity=0.7,
         ),
         row=1,
@@ -5137,7 +5139,7 @@ def plot_feature_slt_bimodal(
         go.Histogram(
             x=df[feature_col],  # Already transformed
             name=f"Transformed {feature_col}",
-            marker_color=COLOR_PALETTE["secondary"],
+            marker_color=PROFESSIONAL_COLORS["secondary"],
             opacity=0.7,
         ),
         row=2,
@@ -5154,7 +5156,7 @@ def plot_feature_slt_bimodal(
     )
 
     # Apply professional styling
-    apply_professional_styling(fig)
+    apply_professional_axis_styling(fig)
 
     # Save plot
     output_file = os.path.join(output_dir, f"{feature_col}_bimodal.html")
@@ -5197,7 +5199,7 @@ def plot_feature_slt_time_series(
             y=df[feature_col],
             mode="lines",
             name=f"Raw {feature_col}",
-            line=dict(color=COLOR_PALETTE["primary"]),
+            line=dict(color=PROFESSIONAL_COLORS["primary"]),
         ),
         row=1,
         col=1,
@@ -5210,7 +5212,7 @@ def plot_feature_slt_time_series(
             y=df[feature_col],  # Already transformed
             mode="lines",
             name=f"Transformed {feature_col}",
-            line=dict(color=COLOR_PALETTE["secondary"]),
+            line=dict(color=PROFESSIONAL_COLORS["secondary"]),
         ),
         row=2,
         col=1,
@@ -5226,7 +5228,7 @@ def plot_feature_slt_time_series(
     )
 
     # Apply professional styling
-    apply_professional_styling(fig)
+    apply_professional_axis_styling(fig)
 
     # Save plot
     output_file = os.path.join(output_dir, f"{feature_col}_time_series.html")
@@ -5718,3 +5720,504 @@ def plot_feature_cross_correlation_heatmap(
                         "_solar_trimmed",
                         title_suffix,
                     )
+
+
+def plot_comparative_kmeans_elbow_curve(
+    df_real: pd.DataFrame,
+    df_noise: pd.DataFrame,
+    feature_cols: list,
+    output_dir: Path,
+    title_suffix: str = "",
+    k_range=range(1, 20, 1),
+    random_state: int = 42,
+):
+    """
+    Plot comparative K-means elbow curves for real and random noise data, per (location, location_type) group.
+
+    For each group:
+    - Calls K-means clustering ONCE for real and noise data (using all features, up to max(k_range)).
+    - Extracts inertia values for the requested k_range.
+    - Plots inertia vs. K for both real and noise, annotates the elbow point.
+    - Saves .html and .png outputs to output_dir.
+
+    Args:
+        df_real: DataFrame with real data (D)
+        df_noise: DataFrame with random noise data (D_n01)
+        feature_cols: The independent variables to use for clustering (base names, not z-transformed)
+        output_dir: Directory to save plots
+        title_suffix: Optional title suffix
+        k_range: Range of K values to test (default: 2 to 50 step 2)
+        random_state: Random state for reproducibility
+        debug_subsample: If True, subsample to speed up debugging
+    """
+
+    # Prepare feature column names for real and noise data
+    feature_cols_z = [col + "_z" for col in feature_cols]
+    feature_cols_n01 = [col + "_n01" for col in feature_cols]
+
+    # Group by (location, location_type)
+    for (location, location_type), group_real in df_real.groupby(
+        ["location", "location_type"]
+    ):
+        # Find matching group in noise data
+        group_noise = df_noise[
+            (df_noise["location"] == location)
+            & (df_noise["location_type"] == location_type)
+        ]
+        if group_noise.empty or group_real.empty:
+            print(
+                f"[KMeans-Comp] Skipping {location} ({location_type}): no data in one of the sets."
+            )
+            continue
+        safe_id = (
+            f"{str(location).replace(' ', '_')}_{str(location_type).replace(' ', '_')}"
+        )
+        location_dir = output_dir
+        location_dir.mkdir(parents=True, exist_ok=True)
+        print(
+            f"[KMeans-Comp] Processing {location} ({location_type}): {len(group_real)} real, {len(group_noise)} noise rows"
+        )
+
+        # Prepare feature matrices (drop rows with NaN)
+        X_real = group_real[feature_cols_z].dropna().values
+        X_noise = group_noise[feature_cols_n01].dropna().values
+        if X_real.shape[0] < max(k_range) or X_noise.shape[0] < max(k_range):
+            print(
+                f"[KMeans-Comp] Skipping {location} ({location_type}): not enough rows for max_k."
+            )
+            continue
+
+        # --- K-means clustering (single call per group) ---
+        res_real = compute_kmeans_clustering_multivariate(
+            X_real,
+            max_k=max(k_range),
+            random_state=random_state,
+        )
+        res_noise = compute_kmeans_clustering_multivariate(
+            X_noise,
+            max_k=max(k_range),
+            random_state=random_state,
+        )
+
+        # --- Extract inertia values for requested k_range ---
+        k_values = list(k_range)
+        inertias_real = [res_real["inertias"][k - 1] for k in k_values]
+        inertias_noise = [res_noise["inertias"][k - 1] for k in k_values]
+
+        # --- Determine elbow point ---
+        elbow_k = res_real["elbow_k"]
+        if elbow_k not in k_values:
+            elbow_k = find_elbow_point(np.array(k_values), np.array(inertias_real))
+        elbow_idx = k_values.index(elbow_k) if elbow_k in k_values else None
+
+        # --- Plotting ---
+        colors = {
+            "real": "#2E86AB",
+            "noise": "#A23B72",
+            "background": "#F5F5F5",
+            "text": "#2C3E50",
+            "elbow": "#F18F01",
+        }
+        fig = go.Figure()
+        # Plot real data inertia
+        fig.add_trace(
+            go.Scatter(
+                x=k_values,
+                y=inertias_real,
+                mode="lines+markers",
+                name="Actual Data",
+                line=dict(color=colors["real"], width=3),
+                marker=dict(size=8, color=colors["real"]),
+            )
+        )
+        # Plot noise data inertia
+        fig.add_trace(
+            go.Scatter(
+                x=k_values,
+                y=inertias_noise,
+                mode="lines+markers",
+                name="Random Noise",
+                line=dict(color=colors["noise"], width=3, dash="dash"),
+                marker=dict(size=8, color=colors["noise"]),
+            )
+        )
+        # Annotate elbow
+        if elbow_idx is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=[elbow_k],
+                    y=[inertias_real[elbow_idx]],
+                    mode="markers+text",
+                    marker=dict(color=colors["elbow"], size=16, symbol="diamond"),
+                    text=[f"Elbow: K={elbow_k}"],
+                    textposition="top center",
+                    name="Elbow (Optimal K)",
+                    showlegend=True,
+                )
+            )
+        # --- Professional layout ---
+        fig.update_layout(
+            title={
+                "text": f"Comparative K-means Elbow Curve - {location} ({location_type}){title_suffix}",
+                "x": 0.5,
+                "xanchor": "center",
+                "font": {"size": 18, "color": colors["text"]},
+            },
+            height=600,
+            width=900,
+            showlegend=True,
+            legend=dict(
+                x=0.98,
+                y=0.98,
+                xanchor="right",
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor=colors["text"],
+                borderwidth=1,
+                font=dict(color=colors["text"], size=12),
+            ),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            margin=dict(t=80, b=60, l=60, r=60),
+        )
+        fig.update_xaxes(
+            title_text="Number of Clusters (K)",
+            title_font=dict(color=colors["text"]),
+            tickfont=dict(color=colors["text"]),
+            gridcolor="rgba(128,128,128,0.2)",
+        )
+        fig.update_yaxes(
+            title_text="Inertia (Within-cluster sum of squares)",
+            title_font=dict(color=colors["text"]),
+            tickfont=dict(color=colors["text"]),
+            gridcolor="rgba(128,128,128,0.2)",
+        )
+        # --- Save outputs ---
+        output_path = location_dir / f"comparative_kmeans_elbow_curve_{safe_id}.html"
+        fig.write_html(str(output_path))
+        png_path = location_dir / f"comparative_kmeans_elbow_curve_{safe_id}.png"
+        fig.write_image(str(png_path), width=1000, height=600, scale=2)
+        print(
+            f"[KMeans-Comp] Plot saved: {output_path}\n[KMeans-Comp] PNG saved: {png_path}"
+        )
+
+
+def plot_comp_embedded_trajectories(
+    df_real: pd.DataFrame,
+    df_noise: pd.DataFrame,
+    feature_cols: list,
+    output_dir: Path,
+    title_suffix: str = "",
+    k_range=range(2, 11, 2),
+    random_state: int = 42,
+    umap_n_neighbors: int = 15,
+    umap_min_dist: float = 0.1,
+    arrow_interval: int = None,  # If set, add arrows every Nth point
+):
+    """
+    For each (location, location_type) group and each K in k_range:
+    - Run K-means clustering ONCE for real and noise data (using all features, up to max(k_range)).
+    - For each K, replace each data vector with its assigned cluster centroid.
+    - Run UMAP (separately for real and noise) to project the centroid time series to 2D.
+    - Plot the time-ordered trajectory in UMAP space for real (left) and noise (right) side-by-side.
+    - Overlay by month, with professional color sequence, start/end markers, and optional arrows every Nth point.
+    - Save .html, .png, and .csv outputs to output_dir.
+    """
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import umap
+    from plotly.subplots import make_subplots
+
+    feature_cols_z = [col + "_z" for col in feature_cols]
+    feature_cols_n01 = [col + "_n01" for col in feature_cols]
+    color_seq = COLOR_SEQUENCE
+
+    for (location, location_type), group_real in df_real.groupby(
+        ["location", "location_type"]
+    ):
+        group_noise = df_noise[
+            (df_noise["location"] == location)
+            & (df_noise["location_type"] == location_type)
+        ]
+        if group_noise.empty or group_real.empty:
+            print(
+                f"[UMAP-Traj] Skipping {location} ({location_type}): no data in one of the sets."
+            )
+            continue
+        safe_id = (
+            f"{str(location).replace(' ', '_')}_{str(location_type).replace(' ', '_')}"
+        )
+        location_dir = output_dir
+        location_dir.mkdir(parents=True, exist_ok=True)
+        print(
+            f"[UMAP-Traj] Processing {location} ({location_type}): {len(group_real)} real, {len(group_noise)} noise rows"
+        )
+
+        X_real = group_real[feature_cols_z].dropna().values
+        X_noise = group_noise[feature_cols_n01].dropna().values
+        meta_real = group_real.loc[
+            group_real[feature_cols_z].dropna().index,
+            ["utc_ts", "location", "location_type"],
+        ].reset_index(drop=True)
+        meta_noise = group_noise.loc[
+            group_noise[feature_cols_n01].dropna().index,
+            ["utc_ts", "location", "location_type"],
+        ].reset_index(drop=True)
+
+        res_real = compute_kmeans_clustering_multivariate(
+            X_real, max_k=max(k_range), random_state=random_state
+        )
+        res_noise = compute_kmeans_clustering_multivariate(
+            X_noise, max_k=max(k_range), random_state=random_state
+        )
+
+        for k in k_range:
+            try:
+                kmeans_real = res_real["models"].get(k)
+                kmeans_noise = res_noise["models"].get(k)
+                if kmeans_real is None or kmeans_noise is None:
+                    print(f"[UMAP-Traj] K-means failed for K={k}: model missing.")
+                    continue
+            except Exception as e:
+                print(f"[UMAP-Traj] K-means failed for K={k}: {e}")
+                continue
+            centroids_real = kmeans_real.cluster_centers_
+            centroids_noise = kmeans_noise.cluster_centers_
+            labels_real = kmeans_real.predict(X_real)
+            labels_noise = kmeans_noise.predict(X_noise)
+            X_real_centroid = centroids_real[labels_real]
+            X_noise_centroid = centroids_noise[labels_noise]
+
+            reducer_real = umap.UMAP(
+                n_neighbors=umap_n_neighbors,
+                min_dist=umap_min_dist,
+                n_components=2,
+                random_state=random_state,
+            )
+            reducer_noise = umap.UMAP(
+                n_neighbors=umap_n_neighbors,
+                min_dist=umap_min_dist,
+                n_components=2,
+                random_state=random_state,
+            )
+            umap_real = reducer_real.fit_transform(X_real_centroid)
+            umap_noise = reducer_noise.fit_transform(X_noise_centroid)
+
+            df_traj_real = meta_real.copy()
+            df_traj_real["K"] = k
+            df_traj_real["cluster_label"] = labels_real
+            df_traj_real["umap_x"] = umap_real[:, 0]
+            df_traj_real["umap_y"] = umap_real[:, 1]
+            df_traj_real["data_type"] = "real"
+            df_traj_real["month"] = pd.to_datetime(df_traj_real["utc_ts"]).dt.to_period(
+                "M"
+            )
+            df_traj_noise = meta_noise.copy()
+            df_traj_noise["K"] = k
+            df_traj_noise["cluster_label"] = labels_noise
+            df_traj_noise["umap_x"] = umap_noise[:, 0]
+            df_traj_noise["umap_y"] = umap_noise[:, 1]
+            df_traj_noise["data_type"] = "noise"
+            df_traj_noise["month"] = pd.to_datetime(
+                df_traj_noise["utc_ts"]
+            ).dt.to_period("M")
+
+            fig = make_subplots(
+                rows=1,
+                cols=2,
+                shared_yaxes=True,
+                shared_xaxes=True,
+                subplot_titles=["Real Data Trajectory", "Random Noise Trajectory"],
+            )
+            # Real trajectory (left) - overlay by month
+            months_real = df_traj_real["month"].unique()
+            for i, month in enumerate(months_real):
+                month_mask = df_traj_real["month"] == month
+                month_data = df_traj_real[month_mask].reset_index(drop=True)
+                color = color_seq[i % len(color_seq)]
+                fig.add_trace(
+                    go.Scatter(
+                        x=month_data["umap_x"],
+                        y=month_data["umap_y"],
+                        mode="lines+markers",
+                        marker=dict(color=color, size=5),
+                        line=dict(color=color, width=2),
+                        name=f"Real {month}",
+                        text=month_data["utc_ts"],
+                        hovertemplate="Time: %{text}<br>X: %{x:.2f}<br>Y: %{y:.2f}<br>Cluster: %{customdata}",
+                        customdata=month_data["cluster_label"],
+                        showlegend=True,
+                        legendgroup=f"real_{month}",
+                    ),
+                    row=1,
+                    col=1,
+                )
+                # First point (diamond)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[month_data["umap_x"].iloc[0]],
+                        y=[month_data["umap_y"].iloc[0]],
+                        mode="markers",
+                        marker=dict(color=color, size=12, symbol="diamond"),
+                        name=f"Start {month}",
+                        showlegend=False,
+                        legendgroup=f"real_{month}",
+                        hoverinfo="skip",
+                    ),
+                    row=1,
+                    col=1,
+                )
+                # Last point (triangle-up)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[month_data["umap_x"].iloc[-1]],
+                        y=[month_data["umap_y"].iloc[-1]],
+                        mode="markers",
+                        marker=dict(color=color, size=14, symbol="triangle-up"),
+                        name=f"End {month}",
+                        showlegend=False,
+                        legendgroup=f"real_{month}",
+                        hoverinfo="skip",
+                    ),
+                    row=1,
+                    col=1,
+                )
+                if arrow_interval is not None and len(month_data) > arrow_interval:
+                    for idx in range(arrow_interval, len(month_data), arrow_interval):
+                        x0 = month_data["umap_x"].iloc[idx - 1]
+                        y0 = month_data["umap_y"].iloc[idx - 1]
+                        x1 = month_data["umap_x"].iloc[idx]
+                        y1 = month_data["umap_y"].iloc[idx]
+                        fig.add_annotation(
+                            x=x1,
+                            y=y1,
+                            ax=x0,
+                            ay=y0,
+                            xref=f"x{1}",
+                            yref=f"y{1}",
+                            axref=f"x{1}",
+                            ayref=f"y{1}",
+                            showarrow=True,
+                            arrowhead=3,
+                            arrowsize=1.2,
+                            arrowwidth=2,
+                            arrowcolor=color,
+                            opacity=0.7,
+                            standoff=2,
+                        )
+            # Noise trajectory (right) - overlay by month
+            months_noise = df_traj_noise["month"].unique()
+            for i, month in enumerate(months_noise):
+                month_mask = df_traj_noise["month"] == month
+                month_data = df_traj_noise[month_mask].reset_index(drop=True)
+                color = color_seq[i % len(color_seq)]
+                fig.add_trace(
+                    go.Scatter(
+                        x=month_data["umap_x"],
+                        y=month_data["umap_y"],
+                        mode="lines+markers",
+                        marker=dict(color=color, size=5),
+                        line=dict(color=color, width=2),
+                        name=f"Noise {month}",
+                        text=month_data["utc_ts"],
+                        hovertemplate="Time: %{text}<br>X: %{x:.2f}<br>Y: %{y:.2f}<br>Cluster: %{customdata}",
+                        customdata=month_data["cluster_label"],
+                        showlegend=True,
+                        legendgroup=f"noise_{month}",
+                    ),
+                    row=1,
+                    col=2,
+                )
+                # First point (diamond)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[month_data["umap_x"].iloc[0]],
+                        y=[month_data["umap_y"].iloc[0]],
+                        mode="markers",
+                        marker=dict(color=color, size=12, symbol="diamond"),
+                        name=f"Start {month}",
+                        showlegend=False,
+                        legendgroup=f"noise_{month}",
+                        hoverinfo="skip",
+                    ),
+                    row=1,
+                    col=2,
+                )
+                # Last point (triangle-up)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[month_data["umap_x"].iloc[-1]],
+                        y=[month_data["umap_y"].iloc[-1]],
+                        mode="markers",
+                        marker=dict(color=color, size=14, symbol="triangle-up"),
+                        name=f"End {month}",
+                        showlegend=False,
+                        legendgroup=f"noise_{month}",
+                        hoverinfo="skip",
+                    ),
+                    row=1,
+                    col=2,
+                )
+                if arrow_interval is not None and len(month_data) > arrow_interval:
+                    for idx in range(arrow_interval, len(month_data), arrow_interval):
+                        x0 = month_data["umap_x"].iloc[idx - 1]
+                        y0 = month_data["umap_y"].iloc[idx - 1]
+                        x1 = month_data["umap_x"].iloc[idx]
+                        y1 = month_data["umap_y"].iloc[idx]
+                        fig.add_annotation(
+                            x=x1,
+                            y=y1,
+                            ax=x0,
+                            ay=y0,
+                            xref=f"x{2}",
+                            yref=f"y{2}",
+                            axref=f"x{2}",
+                            ayref=f"y{2}",
+                            showarrow=True,
+                            arrowhead=3,
+                            arrowsize=1.2,
+                            arrowwidth=2,
+                            arrowcolor=color,
+                            opacity=0.7,
+                            standoff=2,
+                        )
+            # Professional layout and legend below
+            professional_title = f"K-means/UMAP Trajectory - {location} ({location_type}) - K={k}{title_suffix}"
+            layout = get_professional_layout(
+                title=professional_title,
+                height=600,
+                width=1200,
+                showlegend=True,
+                legend_position="bottom",  # horizontal panel below
+            )
+            fig.update_layout(**layout)
+            fig.update_layout(
+                legend=dict(
+                    orientation="h",
+                    x=0.5,
+                    y=-0.25,
+                    xanchor="center",
+                    yanchor="top",
+                    bgcolor="rgba(255,255,255,0.9)",
+                    bordercolor=PROFESSIONAL_COLORS["text"],
+                    borderwidth=1,
+                    font=dict(color=PROFESSIONAL_COLORS["text"], size=11),
+                ),
+                margin=dict(t=100, b=180, l=60, r=60),
+            )
+            apply_professional_axis_styling(fig, rows=1, cols=2)
+            fig.update_xaxes(title_text="UMAP X", row=1, col=1)
+            fig.update_xaxes(title_text="UMAP X", row=1, col=2)
+            fig.update_yaxes(title_text="UMAP Y", row=1, col=1)
+            fig.update_yaxes(title_text="UMAP Y", row=1, col=2)
+            # Save outputs
+            base = f"umap_trajectory_kmeans_K{k}_{safe_id}"
+            html_path = location_dir / f"{base}.html"
+            png_path = location_dir / f"{base}.png"
+            csv_path = location_dir / f"{base}.csv"
+            fig.write_html(str(html_path))
+            fig.write_image(str(png_path), width=1200, height=600, scale=2)
+            pd.concat([df_traj_real, df_traj_noise], axis=0).to_csv(
+                csv_path, index=False
+            )
+            print(f"[UMAP-Traj] Saved: {html_path}, {png_path}, {csv_path}")

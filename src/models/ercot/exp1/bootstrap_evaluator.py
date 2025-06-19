@@ -28,7 +28,7 @@ from sklearn.base import clone
 from sklearn.metrics import r2_score
 from sklearn.utils import resample
 
-from src.models.ercot.exp0.evaluation_metrics import EvaluationMetrics
+from src.models.ercot.exp1.evaluation_metrics import EvaluationMetrics
 
 
 class BootstrapEvaluator:

@@ -59,6 +59,46 @@ def signed_log_transform(data, ignore_zeros=False):
             return np.nan
 
 
+def inverse_signed_log_transform(data):
+    """Apply inverse signed logarithm transformation to recover original values.
+
+    The inverse signed logarithm transformation is defined as:
+    x = sign(z) * (exp(|z|) - 1)
+
+    This transformation reverses the signed_log_transform:
+    - Preserves the sign of the input
+    - Expands logarithmically compressed values back to original scale
+    - Maps zero to zero
+    - Is the exact inverse: inverse_signed_log(signed_log(x)) = x
+    - Properly handles missing values (NaN)
+
+    This is used to convert signed log transformed values (like DART_SLT)
+    back to original units (like DART in $/MWh) for business interpretation.
+
+    Args:
+        data: pandas Series or scalar value (signed log transformed)
+
+    Returns:
+        pandas Series (if input is Series) or scalar with same structure as input
+
+    Example:
+        # For a single value
+        original = inverse_signed_log_transform(signed_log_value)
+
+        # For a pandas Series (e.g., DART_SLT column)
+        df["dart_original"] = inverse_signed_log_transform(df["dart_slt"])
+    """
+    if isinstance(data, pd.Series):
+        return data.apply(
+            lambda z: np.sign(z) * (np.exp(abs(z)) - 1) if pd.notna(z) else np.nan
+        )
+    else:
+        if pd.notna(data):
+            return np.sign(data) * (np.exp(abs(data)) - 1)
+        else:
+            return np.nan
+
+
 def compute_power_spectrum(
     time_series: np.ndarray, timestamps: pd.Series, peak_percentile: float = 85
 ) -> dict:
@@ -328,3 +368,100 @@ def find_elbow_point(k_values: np.ndarray, inertias: np.ndarray) -> int:
 
     # Ensure we return at least K=2 (K=1 is trivial)
     return max(2, optimal_k)
+
+
+def compute_kmeans_clustering_multivariate(
+    X: np.ndarray, max_k: int = 10, random_state: int = 42
+) -> dict:
+    """
+    Perform K-means clustering analysis on multivariate data to identify natural groupings.
+
+    Args:
+        X: 2D numpy array or DataFrame of shape (n_samples, n_features)
+        max_k: Maximum number of clusters to evaluate (default: 10)
+        random_state: Random state for reproducible results (default: 42)
+
+    Returns:
+        dict containing:
+            - k_values: Array of K values tested (1 to max_k)
+            - inertias: Within-cluster sum of squares for each K
+            - silhouette_scores: Silhouette scores for each K (None for K=1)
+            - optimal_k: Optimal K selected using elbow method
+            - optimal_model: Fitted KMeans model with optimal K
+            - cluster_centers: Cluster centers for optimal K
+            - labels: Cluster labels for each data point using optimal K
+            - elbow_k: K value at elbow point in inertia curve
+            - models: dict of all fitted models
+    """
+    import warnings
+
+    import numpy as np
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+
+    from src.features.utils import find_elbow_point
+
+    # Remove any NaN or infinite values (row-wise)
+    if isinstance(X, pd.DataFrame):
+        X = X.values
+    mask = np.all(np.isfinite(X), axis=1)
+    X = X[mask]
+    if X.shape[0] < max_k * 5:
+        raise ValueError(
+            f"Insufficient data points ({X.shape[0]}) for clustering with max_k={max_k}"
+        )
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
+        warnings.filterwarnings("ignore", message=".*overflow encountered.*")
+        warnings.filterwarnings("ignore", message=".*invalid value encountered.*")
+        warnings.filterwarnings("ignore", message=".*divide by zero.*")
+
+        k_values = np.arange(1, max_k + 1)
+        inertias = []
+        silhouette_scores_list = []
+        models = {}
+        for k in k_values:
+            try:
+                kmeans = KMeans(
+                    n_clusters=k,
+                    random_state=random_state,
+                    n_init=10,
+                    max_iter=300,
+                    init="k-means++",
+                    algorithm="lloyd",
+                )
+                kmeans.fit(X)
+                models[k] = kmeans
+                inertias.append(kmeans.inertia_)
+                if k >= 2 and len(np.unique(kmeans.labels_)) > 1:
+                    sil_score = silhouette_score(X, kmeans.labels_)
+                    silhouette_scores_list.append(sil_score)
+                else:
+                    silhouette_scores_list.append(None)
+            except Exception as e:
+                print(f"Warning: K-means failed for K={k}: {e}")
+                inertias.append(inertias[-1] * 1.5 if inertias else 1e6)
+                silhouette_scores_list.append(None)
+                models[k] = None
+    inertias = np.array(inertias)
+    optimal_k = find_elbow_point(k_values, inertias)
+    optimal_model = models.get(optimal_k)
+    if optimal_model is None:
+        optimal_k = 2
+        optimal_model = models.get(optimal_k)
+        if optimal_model is None:
+            raise ValueError("All K-means clustering attempts failed")
+    cluster_centers = optimal_model.cluster_centers_
+    labels = optimal_model.labels_
+    return {
+        "k_values": k_values,
+        "inertias": inertias,
+        "silhouette_scores": silhouette_scores_list,
+        "optimal_k": optimal_k,
+        "optimal_model": optimal_model,
+        "cluster_centers": cluster_centers,
+        "labels": labels,
+        "elbow_k": optimal_k,
+        "models": models,
+    }

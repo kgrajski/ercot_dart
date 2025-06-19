@@ -11,6 +11,8 @@ from scipy import stats
 
 from src.data.ercot.database import DatabaseProcessor
 from src.features.ercot.exp_dataset import ExpDataset
+from src.features.ercot.visualization import plot_comp_embedded_trajectories
+from src.features.ercot.visualization import plot_comparative_kmeans_elbow_curve
 from src.features.ercot.visualization import plot_dart_slt_vs_features_by_hour
 from src.features.ercot.visualization import plot_feature_boxplots
 from src.features.ercot.visualization import plot_feature_cross_correlation_heatmap
@@ -118,6 +120,65 @@ class Exp1Dataset(ExpDataset):
                 [f"dart_slt_roll_mean_{roll_h}hr", f"dart_slt_roll_sdev_{roll_h}hr"]
             )
 
+        # Add load, solar, and wind features (using _slt versions)
+        vars_list.extend(
+            [
+                # Load features (from _add_load_features)
+                "load_forecast_coast_slt",
+                "load_forecast_east_slt",
+                "load_forecast_farWest_slt",
+                "load_forecast_north_slt",
+                "load_forecast_northCentral_slt",
+                "load_forecast_southCentral_slt",
+                "load_forecast_southern_slt",
+                "load_forecast_west_slt",
+                # Wind features (from _add_wind_features)
+                "wind_generation_COPHSLCoastal_slt",
+                "wind_generation_COPHSLNorth_slt",
+                "wind_generation_COPHSLPanhandle_slt",
+                "wind_generation_COPHSLSouth_slt",
+                "wind_generation_COPHSLSystemWide_slt",
+                "wind_generation_COPHSLWest_slt",
+                "wind_generation_STWPFCoastal_slt",
+                "wind_generation_STWPFNorth_slt",
+                "wind_generation_STWPFPanhandle_slt",
+                "wind_generation_STWPFSouth_slt",
+                "wind_generation_STWPFSystemWide_slt",
+                "wind_generation_STWPFWest_slt",
+                "wind_generation_WGRPPCoastal_slt",
+                "wind_generation_WGRPPNorth_slt",
+                "wind_generation_WGRPPPanhandle_slt",
+                "wind_generation_WGRPPSouth_slt",
+                "wind_generation_WGRPPSystemWide_slt",
+                "wind_generation_WGRPPWest_slt",
+                # Solar features (from _add_solar_features)
+                "solar_COPHSLCenterEast_slt",
+                "solar_COPHSLCenterWest_slt",
+                "solar_COPHSLFarEast_slt",
+                "solar_COPHSLFarWest_slt",
+                "solar_COPHSLNorthWest_slt",
+                "solar_COPHSLSouthEast_slt",
+                "solar_COPHSLSystemWide_slt",
+                "solar_PVGRPPCenterEast_slt",
+                "solar_PVGRPPCenterWest_slt",
+                "solar_PVGRPPFarEast_slt",
+                "solar_PVGRPPFarWest_slt",
+                "solar_PVGRPPNorthWest_slt",
+                "solar_PVGRPPSouthEast_slt",
+                "solar_PVGRPPSystemWide_slt",
+                "solar_STPPFCenterEast_slt",
+                "solar_STPPFCenterWest_slt",
+                "solar_STPPFFarEast_slt",
+                "solar_STPPFFarWest_slt",
+                "solar_STPPFNorthWest_slt",
+                "solar_STPPFSouthEast_slt",
+                "solar_STPPFSystemWide_slt",
+            ]
+        )
+
+        # Always include these categorical/time features
+        vars_list.extend(["is_weekend", "is_holiday", "day_of_week"])
+
         return vars_list
 
     @property
@@ -199,51 +260,39 @@ class Exp1Dataset(ExpDataset):
                 "No study data available. Run generate_dependent_vars() first."
             )
 
-        df = self.study_data.copy()
+        # Add features sequentially to self.study_data
+        self._add_dart_lagged_and_rolling_features()
+        self._add_load_features()
+        self._add_wind_features()
+        self._add_solar_features()
+        self._add_weather_features()
 
-        # Add DART SLT lagged and rolling features
-        df = self._add_dart_lagged_and_rolling_features(df)
+        # To aid EDA, transform the independent variables to Z-scores.
+        self.append_z_transformed_independent_vars()
 
-        # Add load forecast features
-        df = self._add_load_features(df)
+        # To aid EDA, create a random noise dataset.
+        self.study_data_n01 = self._generate_random_noise_dataset()
 
-        # Add wind forecast and actuals
-        df = self._add_wind_features(df)
-
-        # Add solar forecast and actuals
-        df = self._add_solar_features(df)
-
-        # Add weather features
-        df = self._add_weather_features(df)
-
-        # ...add more as needed...
-
-        self.study_data = df
-
-    def _add_dart_lagged_and_rolling_features(self, df, debug=False):
+    def _add_dart_lagged_and_rolling_features(self, debug=False):
         """
-        Add DART SLT lagged and rolling features to the DataFrame.
+        Add DART SLT lagged and rolling features to self.study_data.
 
         For each row (target hour), lagged features are computed as the DART SLT value for the same hour
         (and previous hours, as specified by self.lag_hours) from Day T-2. Rolling features are computed
         as the mean and std of DART SLT for the same hour over the preceding N days (as specified by
         self.roll_hours), using only data available up to Day T-2.
-
-        The key is that we are using the DART SLT values from Day T-2 to create lags and rolling features.
-        This is because we are predicting the DART SLT values for all of the hours of Day T, and the DART SLT values for Day T are not available until Day T+1.
-        So, we need to use the DART SLT values from Day T-2 to create lags and rolling features.
         """
         import numpy as np
         import pandas as pd
 
-        df = df.copy()
-        results = []
-
+        #
         # Location-independent features (day_of_week, end_of_hour, is_weekend, is_holiday)
         #
         # NOTE: It is safe to use day_of_week, is_weekend, and is_holiday as features for forecasting,
         # because these are fully determined by the delivery date and are known in advance for any
         # forecast. There is no information leakage, as long as the holiday calendar is fixed and public.
+        #
+        df = self.study_data.copy()
         df["day_of_week"] = df["local_ts"].apply(
             lambda x: pd.to_datetime(x).dayofweek if pd.notna(x) else None
         )
@@ -257,16 +306,20 @@ class Exp1Dataset(ExpDataset):
         df["is_holiday"] = df["local_ts"].apply(
             lambda x: pd.to_datetime(x).date() in us_holidays if pd.notna(x) else None
         )
+        self.study_data = df
+        self._apply_categorical_encoding(
+            label_encode_columns=["is_weekend", "is_holiday"],
+            one_hot_columns=["day_of_week"],
+        )
         print(
-            "Created location-independent features: day_of_week, end_of_hour, is_weekend, is_holiday"
+            "Created and as applicable encoded features: day_of_week, end_of_hour, is_weekend, is_holiday"
         )
 
-        # Location-dependent features (location, location_type)
         #
-        # NOTE: It is safe to use location and location_type as features for forecasting,
-        # because these are fully determined by the delivery date and are known in advance for any
-        # forecast. There is no information leakage, as long as the location and location_type are fixed and public.
-
+        # Add lagged and rolling features
+        #
+        df = self.study_data.copy()
+        results = []
         for (location, location_type), group in df.groupby(
             ["location", "location_type"]
         ):
@@ -320,11 +373,11 @@ class Exp1Dataset(ExpDataset):
         tmp_cols = [col for col in df_out.columns if col.startswith("tmp_")]
         if not debug and tmp_cols:
             df_out = df_out.drop(columns=tmp_cols)
-        return df_out
+        self.study_data = df_out
 
-    def _add_load_features(self, df):
+    def _add_load_features(self):
         """
-        Add load forecast features for each weather zone.
+        Add load forecast features for each weather zone to self.study_data.
         For each sample (row), use the most recent load forecast (by posted_datetime)
         for the delivery hour, where posted_datetime is ≤ (delivery date - 1 day).
         Adds 8 columns: load_forecast_{zone} for each weather zone.
@@ -363,7 +416,7 @@ class Exp1Dataset(ExpDataset):
 
         # Process each location/location_type combination
         results = []
-        for (location, location_type), group in df.groupby(
+        for (location, location_type), group in self.study_data.groupby(
             ["location", "location_type"]
         ):
             # Merge forecasts for this group
@@ -409,11 +462,11 @@ class Exp1Dataset(ExpDataset):
         updated_df = updated_df.sort_values(
             ["location", "location_type", "utc_ts"]
         ).reset_index(drop=True)
-        return updated_df
+        self.study_data = updated_df
 
-    def _add_wind_features(self, df):
+    def _add_wind_features(self):
         """
-        Add wind generation forecast features for each wind zone.
+        Add wind generation forecast features for each wind zone to self.study_data.
         For each sample (row), use the most recent wind forecast (by posted_datetime)
         for the delivery hour, where posted_datetime is ≤ (delivery date - 1 day).
         Adds columns: wind_generation_{zone} for each wind zone.
@@ -450,7 +503,7 @@ class Exp1Dataset(ExpDataset):
 
         # Process each location/location_type combination
         results = []
-        for (location, location_type), group in df.groupby(
+        for (location, location_type), group in self.study_data.groupby(
             ["location", "location_type"]
         ):
             # Merge forecasts for this group
@@ -496,11 +549,11 @@ class Exp1Dataset(ExpDataset):
         updated_df = updated_df.sort_values(
             ["location", "location_type", "utc_ts"]
         ).reset_index(drop=True)
-        return updated_df
+        self.study_data = updated_df
 
-    def _add_solar_features(self, df):
+    def _add_solar_features(self):
         """
-        Add solar generation forecast features for each solar zone.
+        Add solar generation forecast features for each solar zone to self.study_data.
         For each sample (row), use the most recent solar forecast (by posted_datetime)
         for the delivery hour, where posted_datetime is ≤ (delivery date - 1 day).
         Adds columns: solar_{zone} for each solar zone.
@@ -537,7 +590,7 @@ class Exp1Dataset(ExpDataset):
 
         # Process each location/location_type combination
         results = []
-        for (location, location_type), group in df.groupby(
+        for (location, location_type), group in self.study_data.groupby(
             ["location", "location_type"]
         ):
             # Merge forecasts for this group
@@ -583,16 +636,15 @@ class Exp1Dataset(ExpDataset):
         updated_df = updated_df.sort_values(
             ["location", "location_type", "utc_ts"]
         ).reset_index(drop=True)
-        return updated_df
+        self.study_data = updated_df
 
-    def _add_weather_features(self, df):
+    def _add_weather_features(self):
         """
-        Add weather features (e.g., temperature, wind speed, etc.).
+        Add weather features (e.g., temperature, wind speed, etc.) to self.study_data.
         TODO: Implement time-aligned merging and feature engineering for weather data.
         """
         # TODO: Merge weather data, align by utc_ts/location, create features as needed
         print("[TODO] Add weather features (not yet implemented)")
-        return df
 
     def run_eda(self):
         """Run exploratory data analysis and visualization for dataset features."""
@@ -702,25 +754,52 @@ class Exp1Dataset(ExpDataset):
                     )
 
             # Add cross-correlation heatmap for all relevant features
-            from src.features.ercot.visualization import (
-                plot_feature_cross_correlation_heatmap,
-            )
-
+            # The method plot_feature_cross_correlation_heatmap handles the grouping by (location, location_type).
             plot_feature_cross_correlation_heatmap(
                 group,
                 output_dir=eda_dir,
                 title_suffix=f" - {location} ({location_type})",
             )
 
+            #
+            # Do K-means clustering.
+            #
+            plot_comparative_kmeans_elbow_curve(
+                df_real=group,
+                df_noise=self.study_data_n01,
+                feature_cols=self.independent_vars,
+                output_dir=eda_dir,
+                title_suffix=" - Empirical Data vs Random Noise",
+                k_range=range(2, 10, 1),
+                random_state=42,
+            )
+
+            #
+            # --- UMAP trajectory visualization ---
+            #
+            if 0:
+                plot_comp_embedded_trajectories(
+                    df_real=group,
+                    df_noise=self.study_data_n01,
+                    feature_cols=self.independent_vars,
+                    output_dir=eda_dir,
+                    title_suffix=" - UMAP Trajectory Real vs Noise",
+                    k_range=range(2, 32, 1),
+                    random_state=42,
+                )
+
+            #
+            # Do some cool embedded analysis.
+            #
+
     def finalize_study_dataset(self):
         """Finalize study dataset by cleaning and validating data.
 
         This method performs sequential steps:
-        1. Apply categorical encoding (one-hot for cyclical, label for boolean features)
-        2. Remove rows with null/NaN dependent variables (dart_slt)
-        3. Remove rows with null/NaN independent variables
-        4. Validate temporal completeness for each location+location_type
-        5. Save final clean datasets in both CSV and database formats
+        1. Remove rows with null/NaN dependent variables (dart_slt)
+        2. Remove rows with null/NaN independent variables
+        3. Validate temporal completeness for each location+location_type
+        4. Save final clean datasets in both CSV and database formats
 
         Reports on all cleaning actions taken.
         """
@@ -730,13 +809,6 @@ class Exp1Dataset(ExpDataset):
             )
 
         print("Finalizing study dataset...")
-
-        # Step 0: Apply categorical encoding to prepare data for modeling
-        print("Applying categorical encoding...")
-        self._apply_categorical_encoding(
-            label_encode_columns=["is_weekend", "is_holiday"],
-            one_hot_columns=["day_of_week"],
-        )
 
         # Get configuration from instance variables (updated after encoding)
         dependent_vars = self.dependent_vars
