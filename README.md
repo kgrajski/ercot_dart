@@ -209,7 +209,7 @@ Wind power generation forecast (log transformed MHw) by geographic zone.
 
 #### Load forecast
 
-![Load Forecast Prices](reports/figures/load_forecast_coast_distribution_analysis.png)
+![Load Forecast Prices](reports/figures/initial_dart_houston/load_forecast_coast_distribution_analysis.png)
 
 Load forecast distribution analysis for the Coast Zone.
 - The log transformation does not lead to more Gaussian distribution in this example.
