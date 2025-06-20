@@ -1,0 +1,83 @@
+# Experiment 1 Documentation
+metadata:
+  created_date: "2024-12-19"
+  author: "kag"
+  status: "complete"
+  last_updated: "2024-12-19"
+
+description: |
+  Regression-based DART price prediction experiment using enhanced feature engineering.
+  Focus: RT-DAM price differences with comprehensive external features (load, wind, solar).
+
+important_notes: |
+  WARNING - Hour Numbering:
+  ERCOT and Python use different hour numbering conventions:
+  - ERCOT: Uses 1-24 (where hour 24 is midnight)
+  - Python datetime: Uses 0-23 (where hour 0 is midnight)
+  
+  This difference is handled in our ETL process (see ERCOTBaseETL.combine_date_hour).
+
+  DART Calculation:
+  - DART = RT_Price - DAM_Price (positive = RT higher, negative = RT lower)
+  - Uses signed log transformation for modeling: sign(x) * log(1 + |x|)
+
+data_sources:
+  - processed_dam_spp_clean
+  - processed_dam_system_lambda_clean
+  - processed_load_forecast_clean
+  - processed_wind_power_gen_clean
+  - processed_solar_power_gen_clean
+  - processed_rt_spp_transformed  # Contains hourly statistics
+
+workflow_steps:
+  study_dataset: "03-kag-exp1-ercot-study-dataset.py"
+  model_train: "04-kag-exp1-ercot-modeling.py"
+
+implementation_status:
+  completed:
+    - ✅ Enhanced dataset class with external features
+    - ✅ DART dependent variable generation (raw + signed log transform)
+    - ✅ Extended lagged features (24hr, 25hr, 26hr, 27hr, 168hr)
+    - ✅ Extended rolling statistics (7d, 14d, 21d means + std dev)
+    - ✅ Load forecast features (8 weather zones, _slt transformed)
+    - ✅ Wind generation features (18 zones, _slt transformed)
+    - ✅ Solar generation features (21 zones, _slt transformed)
+    - ✅ Categorical time features (day_of_week, is_weekend, is_holiday)
+    - ✅ Comprehensive EDA with feature analysis
+    - ✅ Multi-model regression framework (Ridge, Lasso, Linear, XGBoost)
+    - ✅ Bootstrap evaluation and cross-validation
+    - ✅ Performance analytics and model comparison
+  
+  features:
+    dependent_vars: ["dart_slt"]
+    lag_hours: [24, 25, 26, 27, 168]
+    roll_hours: [168, 336, 504]  # 7d, 14d, 21d
+    independent_vars: 
+      - "dart_slt_lag_*hr"
+      - "dart_slt_roll_mean_*hr" 
+      - "dart_slt_roll_sdev_*hr"
+      - "load_forecast_*_slt"
+      - "wind_generation_*_slt"
+      - "solar_*_slt"
+      - "is_weekend"
+      - "is_holiday"
+      - "day_of_week"
+
+key_decisions:
+  - Expanded feature set with external market data
+  - All features signed log transformed for consistency
+  - Multi-model regression approach for model comparison
+  - Bootstrap evaluation for robust performance metrics
+  - Categorical encoding for temporal features
+
+findings:
+  - Enhanced feature set improved model performance
+  - External features (load, wind, solar) provide predictive value
+  - XGBoost consistently outperformed linear models
+  - Strong seasonal and hourly patterns in feature relationships
+  - Model performance varies significantly by hour
+
+next_steps: 
+  - Transition to classification framework (exp2)
+  - Implement trading strategy evaluation
+  - Enhanced temporal features with cyclical encoding 
