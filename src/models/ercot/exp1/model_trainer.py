@@ -12,6 +12,10 @@ Similar to ERCOTBaseClient pattern, this class orchestrates the modeling workflo
 while delegating specific model implementation details to specialized model classes.
 """
 
+import inspect
+import os
+import sys
+import time
 from pathlib import Path
 from typing import Dict
 from typing import List
@@ -21,6 +25,7 @@ from typing import Union
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import torch
 from plotly.subplots import make_subplots
 
 from src.data.ercot.database import DatabaseProcessor
@@ -34,6 +39,11 @@ from src.features.utils.utils import inverse_signed_log_transform
 from src.models.ercot.exp1.models.lasso_regression import LassoRegressionModel
 from src.models.ercot.exp1.models.linear_regression import LinearRegressionModel
 from src.models.ercot.exp1.models.ridge_regression import RidgeRegressionModel
+from src.models.ercot.exp1.models.xgboost_regression import XGBoostRegressionModel
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 
 class Exp1ModelTrainer:
@@ -46,6 +56,7 @@ class Exp1ModelTrainer:
     - linear_regression: Standard linear regression
     - ridge_regression: Ridge regression with L2 regularization
     - lasso_regression: Lasso regression with L1 regularization and feature selection
+    - xgboost_regression: XGBoost gradient boosting for non-linear relationships
     - random_forest: Random forest (future implementation)
     - neural_network: Neural networks (future implementation)
     """
@@ -55,6 +66,7 @@ class Exp1ModelTrainer:
         "linear_regression": LinearRegressionModel,
         "ridge_regression": RidgeRegressionModel,
         "lasso_regression": LassoRegressionModel,
+        "xgboost_regression": XGBoostRegressionModel,
         # Future models can be added here:
         # 'random_forest': RandomForestModel,
         # 'neural_network': NeuralNetworkModel,
@@ -122,9 +134,9 @@ class Exp1ModelTrainer:
 
         # Auto-detect feature scaling if not specified
         if feature_scaling is None:
-            if model_type == "linear_regression":
+            if model_type in ["linear_regression", "xgboost_regression"]:
                 feature_scaling = (
-                    "none"  # Linear regression doesn't benefit from scaling
+                    "none"  # Linear regression and XGBoost don't need scaling
                 )
             else:
                 feature_scaling = "zscore"  # Ridge/Lasso benefit from scaling
@@ -134,12 +146,43 @@ class Exp1ModelTrainer:
 
         # Create model instance using factory pattern
         model_class = self.MODEL_REGISTRY[model_type]
+
+        # Filter model_kwargs to only include parameters that the model class accepts
+        model_signature = inspect.signature(model_class.__init__)
+        valid_params = set(model_signature.parameters.keys()) - {
+            "self"
+        }  # Exclude 'self'
+
+        # Check if the constructor has **kwargs which can accept additional parameters
+        has_kwargs = any(
+            param.kind == param.VAR_KEYWORD
+            for param in model_signature.parameters.values()
+        )
+
+        if has_kwargs:
+            # If constructor has **kwargs, pass all parameters (they'll be handled by the model)
+            filtered_kwargs = model_kwargs.copy()
+            print(
+                f"  Constructor accepts **kwargs - passing all parameters: {sorted(filtered_kwargs.keys())}"
+            )
+        else:
+            # Only filter if no **kwargs (strict parameter checking)
+            filtered_kwargs = {
+                k: v for k, v in model_kwargs.items() if k in valid_params
+            }
+
+            # Log filtered parameters for transparency
+            if len(model_kwargs) != len(filtered_kwargs):
+                filtered_out = set(model_kwargs.keys()) - set(filtered_kwargs.keys())
+                print(f"  Filtered out unsupported parameters: {sorted(filtered_out)}")
+                print(f"  Using supported parameters: {sorted(filtered_kwargs.keys())}")
+
         model = model_class(
             output_dir=str(self.output_dir),
             settlement_point=self.settlement_point,
             random_state=self.random_state,
             feature_scaling=feature_scaling,
-            **model_kwargs,
+            **filtered_kwargs,
         )
 
         #
@@ -178,7 +221,8 @@ class Exp1ModelTrainer:
                                  - Testing: 100-500 (more robust)
                                  - Production: 1000+ (publication quality)
             hours_to_train: List of hours to train (1-24). If None, trains all hours.
-            **experiment_kwargs: Additional parameters passed to all models (e.g., use_synthetic_data=True)
+            **experiment_kwargs: Additional parameters passed to all models
+                                Each model will automatically filter for its supported parameters
 
         Returns:
             Dictionary with results for each model type
@@ -195,11 +239,12 @@ class Exp1ModelTrainer:
 
             try:
                 # Train the model (24 hourly models with bootstrap resampling)
+                # Each model class will automatically filter experiment_kwargs for supported parameters
                 results = self.train_model(
                     model_type=model_type,
                     bootstrap_iterations=bootstrap_iterations,
                     hours_to_train=hours_to_train,
-                    **experiment_kwargs,  # Pass through additional parameters
+                    **experiment_kwargs,  # Pass all parameters - models will filter appropriately
                 )
                 all_results[model_type] = results
 
@@ -364,7 +409,9 @@ class Exp1ModelTrainer:
             coeff_data = []
 
             for hour, hour_results in model.results.items():
+                # Handle both linear models (coefficients) and XGBoost models (feature_importances)
                 if "coefficients" in hour_results and "feature_names" in hour_results:
+                    # Linear models: coefficients
                     coefficients = hour_results["coefficients"]
                     feature_names = hour_results["feature_names"]
 
@@ -376,6 +423,27 @@ class Exp1ModelTrainer:
                                 "coefficient": coeff,
                                 "abs_coefficient": abs(coeff),
                                 "is_zero": coeff == 0,
+                                "model_type": model.model_type,
+                                "settlement_point": model.settlement_point,
+                            }
+                        )
+
+                elif (
+                    "feature_importances" in hour_results
+                    and "feature_names" in hour_results
+                ):
+                    # XGBoost models: feature importances (gain-based)
+                    importances = hour_results["feature_importances"]
+                    feature_names = hour_results["feature_names"]
+
+                    for feature, importance in zip(feature_names, importances):
+                        coeff_data.append(
+                            {
+                                "end_hour": hour,
+                                "feature": feature,
+                                "coefficient": importance,  # Use importance as coefficient for consistency
+                                "abs_coefficient": importance,  # XGBoost importances are already non-negative
+                                "is_zero": importance == 0,
                                 "model_type": model.model_type,
                                 "settlement_point": model.settlement_point,
                             }

@@ -47,7 +47,12 @@ def main():
 
     # Experiment name
     exp_name = "exp1"
-    model_types = ["linear_regression", "ridge_regression", "lasso_regression"]
+    model_types = [
+        "linear_regression",
+        "ridge_regression",
+        "lasso_regression",
+        "xgboost_regression",
+    ]
     processed_data_date = "2025-06-04"
     print(
         f"\n** Experiment name: {exp_name} on processed dataset created: {processed_data_date}"
@@ -87,8 +92,9 @@ def main():
         # Complete experiment runs all model types for all hours for this dataset (location + location_type)
         all_results = trainer.run_experiment(
             model_types=model_types,
+            bootstrap_iterations=5,  # Fast for testing XGBoost integration
             use_synthetic_data=False,  # Changed to False to test real data performance
-            use_dart_features=False,  # 🔥 EXPERIMENT: Exclude DART lag/rolling features
+            use_dart_features=False,  # 🔥 EXPERIMENT: Exclude DART lag/rolling features (NO DART FEATURES)
         )
 
         print(f"** Completed modeling for {spp_loc}")
