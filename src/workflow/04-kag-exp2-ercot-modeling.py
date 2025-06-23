@@ -47,15 +47,26 @@ def main():
 
     # Experiment name
     exp_name = "exp2"
+    bootstrap_iterations = 10
     model_types = [
         "xgboost_classification",
         # TODO: Add when implemented
         # "rf_classification"
     ]
     processed_data_date = "2025-06-04"
+
+    # **NEW: Progressive validation option**
+    run_progressive_validation = True  # Set to True for progressive validation
+    num_weeks = 2  # Number of weeks for progressive validation (testing with 2 weeks)
+    verbose_training = False  # Set to True for detailed training output per hour
+
     print(
         f"\n** Experiment name: {exp_name} on processed dataset created: {processed_data_date}"
     )
+    if run_progressive_validation:
+        print("** Validation mode: PROGRESSIVE (weekly rolling)")
+    else:
+        print("** Validation mode: YEARLY (2024 train, 2025 validate)")
 
     # Directory setup
     root_dir = "/Users/kag/Documents/Projects/"
@@ -91,11 +102,21 @@ def main():
 
         # Run complete experiment
         # Complete experiment runs all model types for all hours for this dataset (location + location_type)
-        all_results = trainer.run_experiment(
-            model_types=model_types,
-            bootstrap_iterations=5,  # Fast for testing
-            classification_strategy="sign_only",  # Start with sign-only classification
-        )
+        if run_progressive_validation:
+            # Run progressive validation
+            all_results = trainer.run_experiment_progressive(
+                model_types=model_types,
+                bootstrap_iterations=bootstrap_iterations,  # Fast for testing
+                num_weeks=num_weeks,  # Pass configured number of weeks
+                classification_strategy="sign_only",  # Start with sign-only classification
+            )
+        else:
+            # Run standard yearly validation
+            all_results = trainer.run_experiment(
+                model_types=model_types,
+                bootstrap_iterations=bootstrap_iterations,  # Fast for testing
+                classification_strategy="sign_only",  # Start with sign-only classification
+            )
 
         print(f"** Completed modeling for {spp_loc}")
         print("-" * 60)

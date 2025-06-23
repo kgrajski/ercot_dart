@@ -148,7 +148,25 @@ class BaseExp2Model(ABC):
 
         # Split data by year: 2024 for train/CV, 2025 for final validation
         df = dataset.df.copy()
-        df["year"] = df["utc_ts"].dt.year
+
+        # Check if year column already exists (progressive validation case)
+        if "year" not in df.columns:
+            # Standard yearly validation: create year column from timestamp
+            df["year"] = df["utc_ts"].dt.year
+            print("📅 Using standard yearly validation (2024 train, 2025 validate)")
+        else:
+            # Progressive validation: year column already set by _apply_week_split
+            # Check for presence of temp_split to confirm this is progressive validation
+            if "temp_split" in df.columns:
+                print("📅 Using progressive validation (custom train/validation split)")
+
+                # Report progressive validation data distribution
+                temp_split_counts = df["temp_split"].value_counts()
+                year_counts = df["year"].value_counts().sort_index()
+                print(f"   Split distribution: {dict(temp_split_counts)}")
+                print(f"   Year distribution: {dict(year_counts)}")
+            else:
+                print("📅 Using existing year column for validation")
 
         self.train_data = df[df["year"] == 2024].copy()
         self.validation_data = df[df["year"] == 2025].copy()

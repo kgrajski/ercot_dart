@@ -18,6 +18,8 @@ import inspect
 import os
 import sys
 import time
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import Dict
 from typing import List
@@ -40,6 +42,9 @@ from src.features.ercot.visualization import get_professional_layout
 from src.features.utils.utils import inverse_signed_log_transform
 from src.models.ercot.exp2.models.xgboost_classification import (
     XGBoostClassificationModel,
+)
+from src.models.ercot.exp2.tmp.phase_1a_analysis.get_optimized_xgboost_params import (
+    get_optimized_xgboost_params,
 )
 
 # Add project root to Python path for imports
@@ -231,6 +236,44 @@ class Exp2ModelTrainer:
         print(f"** Running experiment for {self.settlement_point}")
         print(f"** Model types: {model_types}")
 
+        # Apply Phase 1A optimized parameters for XGBoost models
+        optimized_experiment_kwargs = experiment_kwargs.copy()
+        if "xgboost_classification" in model_types:
+            print(f"\n🎯 Loading Phase 1A optimized XGBoost parameters...")
+            try:
+                optimized_params, early_stopping = get_optimized_xgboost_params()
+                if optimized_params:
+                    # Extract model parameters (exclude training-specific parameters)
+                    xgb_model_params = {
+                        k: v
+                        for k, v in optimized_params.items()
+                        if k
+                        not in [
+                            "objective",
+                            "eval_metric",
+                            "random_state",
+                            "verbosity",
+                            "n_jobs",
+                        ]
+                    }
+
+                    # Merge with any existing parameters (experiment_kwargs take precedence)
+                    for param, value in xgb_model_params.items():
+                        if param not in optimized_experiment_kwargs:
+                            optimized_experiment_kwargs[param] = value
+
+                    print(
+                        f"   ✅ Applied optimized parameters: {list(xgb_model_params.keys())}"
+                    )
+                    print(
+                        f"   Expected improvements: Reduced overfitting, improved generalization"
+                    )
+                else:
+                    print("   ⚠️ Could not load optimized parameters, using defaults")
+            except Exception as e:
+                print(f"   ⚠️ Error loading optimized parameters: {e}")
+                print("   Using default parameters")
+
         all_results = {}
         for model_type in model_types:
             print(f"** Training {model_type} model for {self.settlement_point}")
@@ -242,7 +285,7 @@ class Exp2ModelTrainer:
                     model_type=model_type,
                     bootstrap_iterations=bootstrap_iterations,
                     hours_to_train=hours_to_train,
-                    **experiment_kwargs,  # Pass all parameters - models will filter appropriately
+                    **optimized_experiment_kwargs,  # Pass all parameters - models will filter appropriately
                 )
                 all_results[model_type] = results
 
@@ -371,3 +414,406 @@ class Exp2ModelTrainer:
 
         except Exception as e:
             print(f"❌ Model output dataset creation failed: {e}")
+
+    def run_experiment_progressive(
+        self,
+        model_types: List[str] = None,
+        bootstrap_iterations: int = 10,
+        hours_to_train: Optional[List[int]] = None,
+        num_weeks: Optional[int] = None,  # None = auto-detect all available weeks
+        **experiment_kwargs,
+    ) -> Dict[str, Dict]:
+        """Run progressive validation experiment - clean parallel to run_experiment.
+
+        Args:
+            model_types: List of model types to train. If None, uses ['xgboost_classification']
+            bootstrap_iterations: Number of bootstrap iterations for model evaluation
+            hours_to_train: List of hours to train (1-24). If None, trains all hours.
+            num_weeks: Number of weeks to validate progressively. If None, auto-detects all available weeks.
+            **experiment_kwargs: Additional parameters passed to all models
+
+        Returns:
+            Dictionary with results for each week and model type
+        """
+        if model_types is None:
+            model_types = ["xgboost_classification"]
+
+        print(f"** Running PROGRESSIVE validation for {self.settlement_point}")
+        print(f"** Model types: {model_types}")
+
+        # Auto-detect number of weeks if not specified
+        if num_weeks is None:
+            max_weeks = self._calculate_max_available_weeks()
+            print(f"** Weeks: AUTO-DETECTED {max_weeks} available weeks")
+        else:
+            max_weeks = num_weeks
+            print(f"** Weeks: {num_weeks} (user-specified)")
+
+        # Apply Phase 1A optimized parameters for XGBoost models (same as run_experiment)
+        optimized_experiment_kwargs = experiment_kwargs.copy()
+        if "xgboost_classification" in model_types:
+            print(f"\n🎯 Loading Phase 1A optimized XGBoost parameters...")
+            try:
+                optimized_params, early_stopping = get_optimized_xgboost_params()
+                if optimized_params:
+                    xgb_model_params = {
+                        k: v
+                        for k, v in optimized_params.items()
+                        if k
+                        not in [
+                            "objective",
+                            "eval_metric",
+                            "random_state",
+                            "verbosity",
+                            "n_jobs",
+                        ]
+                    }
+
+                    for param, value in xgb_model_params.items():
+                        if param not in optimized_experiment_kwargs:
+                            optimized_experiment_kwargs[param] = value
+
+                    print(
+                        f"   ✅ Applied optimized parameters: {list(xgb_model_params.keys())}"
+                    )
+                    print(
+                        f"   Expected improvements: Reduced overfitting, improved generalization"
+                    )
+                else:
+                    print("   ⚠️ Could not load optimized parameters, using defaults")
+            except Exception as e:
+                print(f"   ⚠️ Error loading optimized parameters: {e}")
+                print("   Using default parameters")
+
+        # Generate week configurations internally
+        weeks_config = self._generate_operational_weeks(max_weeks)
+
+        # Update final count after generation (in case some weeks were skipped)
+        actual_weeks = len(weeks_config)
+        print(f"** Final week count: {actual_weeks} weeks will be processed")
+
+        # Outer loop over weeks
+        all_weeks_results = {}
+        all_weeks_predictions = []  # Collect predictions from each week immediately
+
+        for week_config in weeks_config:
+            week_num = week_config["week_num"]
+            week_desc = week_config["week_description"]
+            print(f"\n** Week {week_num}: {week_desc}")
+
+            # Temporarily modify dataset for this week's split
+            self._apply_week_split(week_config)
+
+            # Inner loop over model types (SAME as run_experiment)
+            week_results = {}
+            for model_type in model_types:
+                print(f"** Training {model_type} for week {week_num}")
+
+                try:
+                    # Same clean delegation as run_experiment!
+                    results = self.train_model(
+                        model_type=model_type,
+                        bootstrap_iterations=bootstrap_iterations,
+                        hours_to_train=hours_to_train,
+                        **optimized_experiment_kwargs,
+                    )
+
+                    # Add week metadata to results
+                    self._add_week_metadata(results, week_config)
+                    week_results[model_type] = results
+
+                    # IMMEDIATELY collect predictions for this week before model gets overwritten
+                    if model_type in self.trained_models:
+                        week_predictions = self._extract_week_predictions(
+                            model_type, week_config
+                        )
+                        if week_predictions:
+                            all_weeks_predictions.extend(week_predictions)
+                            print(
+                                f"   ✅ Collected {len(week_predictions)} predictions from {model_type}"
+                            )
+
+                except Exception as e:
+                    print(f"ERROR training {model_type} for week {week_num}: {e}")
+                    week_results[model_type] = None
+
+            all_weeks_results[f"week_{week_num}"] = week_results
+
+            # Restore dataset for next week
+            self._restore_original_split()
+
+            print(f"✅ Week {week_num} completed")
+
+        # Create consolidated output using collected predictions
+        self._create_progressive_output_from_predictions(all_weeks_predictions)
+
+        print(f"\n🎉 Progressive validation completed! {actual_weeks} weeks")
+        return all_weeks_results
+
+    def _calculate_max_available_weeks(self) -> int:
+        """Calculate the maximum number of weeks available for progressive validation.
+
+        Returns:
+            Maximum number of operational weeks that can fit in the available data
+        """
+        # Auto-detect data range from dataset
+        df_dates = pd.to_datetime(self.dataset.df["utc_ts"])
+        data_start = df_dates.min()
+        data_end = df_dates.max()
+
+        # Find first Sunday in 2025 for operational weeks
+        start_2025 = pd.to_datetime("2025-01-01")
+        days_ahead = 6 - start_2025.weekday()  # Days until Sunday (weekday 6)
+        if days_ahead == 7:  # If already Sunday
+            days_ahead = 0
+        first_sunday = start_2025 + timedelta(days=days_ahead)
+
+        # Calculate how many complete weeks fit in the available data
+        weeks_available = 0
+        current_sunday = first_sunday
+
+        while True:
+            week_end = current_sunday + timedelta(days=6)  # Saturday
+            if week_end > data_end:
+                break
+            weeks_available += 1
+            current_sunday += timedelta(days=7)  # Next Sunday
+
+        print(
+            f"   Data span: {data_start.strftime('%Y-%m-%d')} to {data_end.strftime('%Y-%m-%d')}"
+        )
+        print(
+            f"   First validation week starts: {first_sunday.strftime('%Y-%m-%d')} (Sunday)"
+        )
+        print(f"   Maximum weeks available: {weeks_available}")
+
+        return weeks_available
+
+    def _generate_operational_weeks(self, num_weeks: int) -> List[Dict]:
+        """Generate operational week configurations for progressive validation.
+
+        Args:
+            num_weeks: Number of weeks to generate
+
+        Returns:
+            List of week configurations with train/validation date ranges
+        """
+        # Auto-detect data range from dataset
+        df_dates = pd.to_datetime(self.dataset.df["utc_ts"])
+        data_start = df_dates.min()
+        data_end = df_dates.max()
+
+        print(
+            f"   Data available: {data_start.strftime('%Y-%m-%d')} to {data_end.strftime('%Y-%m-%d')}"
+        )
+
+        # Find first Sunday in 2025 for operational weeks
+        start_2025 = pd.to_datetime("2025-01-01")
+        days_ahead = 6 - start_2025.weekday()  # Days until Sunday (weekday 6)
+        if days_ahead == 7:  # If already Sunday
+            days_ahead = 0
+        first_sunday = start_2025 + timedelta(days=days_ahead)
+
+        weeks_config = []
+        current_sunday = first_sunday
+
+        for week_num in range(1, num_weeks + 1):
+            # Calculate week boundaries (Sunday to Saturday)
+            week_start = current_sunday
+            week_end = current_sunday + timedelta(days=6)  # Saturday
+
+            # Check if we have enough data for this week
+            if week_end > data_end:
+                print(
+                    f"   ⚠️ Week {week_num} ends {week_end.strftime('%Y-%m-%d')}, beyond available data"
+                )
+                break
+
+            # Training data: All data up to end of previous week
+            train_end_date = current_sunday - timedelta(days=1)  # Previous Saturday
+
+            # Generate human-readable description
+            week_description = (
+                f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
+            )
+
+            week_config = {
+                "week_num": week_num,
+                "week_description": week_description,
+                "train_end_date": train_end_date.strftime("%Y-%m-%d"),
+                "val_start_date": week_start.strftime("%Y-%m-%d"),
+                "val_end_date": week_end.strftime("%Y-%m-%d"),
+            }
+
+            weeks_config.append(week_config)
+            current_sunday += timedelta(days=7)  # Next Sunday
+
+        print(f"   Generated {len(weeks_config)} operational weeks")
+        return weeks_config
+
+    def _apply_week_split(self, week_config: Dict) -> None:
+        """Temporarily modify dataset for a specific week's train/validation split."""
+        train_end = pd.to_datetime(week_config["train_end_date"])
+        val_start = pd.to_datetime(week_config["val_start_date"])
+        val_end = pd.to_datetime(week_config["val_end_date"])
+
+        # Store original year column
+        self.dataset.df["original_year"] = self.dataset.df["utc_ts"].dt.year
+
+        # Create temporary split labels
+        self.dataset.df["temp_split"] = "ignore"
+        self.dataset.df.loc[
+            self.dataset.df["utc_ts"] <= train_end, "temp_split"
+        ] = "train"
+        self.dataset.df.loc[
+            (self.dataset.df["utc_ts"] >= val_start)
+            & (self.dataset.df["utc_ts"] <= val_end),
+            "temp_split",
+        ] = "validation"
+
+        # Temporarily replace year column for models to use
+        self.dataset.df.loc[self.dataset.df["temp_split"] == "train", "year"] = 2024
+        self.dataset.df.loc[
+            self.dataset.df["temp_split"] == "validation", "year"
+        ] = 2025
+        self.dataset.df.loc[
+            self.dataset.df["temp_split"] == "ignore", "year"
+        ] = 9999  # Ignored
+
+        train_samples = (self.dataset.df["temp_split"] == "train").sum()
+        val_samples = (self.dataset.df["temp_split"] == "validation").sum()
+        print(
+            f"   Train samples: {train_samples:,} (through {week_config['train_end_date']})"
+        )
+        print(
+            f"   Validation samples: {val_samples:,} ({week_config['val_start_date']} to {week_config['val_end_date']})"
+        )
+
+    def _restore_original_split(self) -> None:
+        """Restore original year-based dataset split."""
+        if "original_year" in self.dataset.df.columns:
+            self.dataset.df["year"] = self.dataset.df["original_year"]
+            self.dataset.df.drop(columns=["temp_split", "original_year"], inplace=True)
+
+    def _add_week_metadata(self, results: Dict, week_config: Dict) -> None:
+        """Add week metadata to model results."""
+        for hour, hour_results in results.items():
+            hour_results.update(
+                {
+                    "week_num": week_config["week_num"],
+                    "week_description": week_config["week_description"],
+                    "validation_mode": "progressive",
+                    "train_end_date": week_config["train_end_date"],
+                    "val_start_date": week_config["val_start_date"],
+                    "val_end_date": week_config["val_end_date"],
+                }
+            )
+
+    def _extract_week_predictions(
+        self, model_type: str, week_config: Dict
+    ) -> List[Dict]:
+        """Extract predictions from the current week's trained model."""
+        week_predictions = []
+
+        if model_type not in self.trained_models:
+            return week_predictions
+
+        model = self.trained_models[model_type]
+
+        # Extract predictions from model's live predictions dict
+        if hasattr(model, "predictions") and model.predictions:
+            for end_hour, predictions in model.predictions.items():
+                for dataset_type, dataset_predictions in predictions.items():
+                    for prediction in dataset_predictions:
+                        prediction_record = {
+                            "utc_ts": prediction["utc_ts"],
+                            "local_ts": prediction["local_ts"],
+                            "end_hour": end_hour,
+                            "dataset_type": dataset_type,
+                            "actual_dart_slt": prediction["actual_dart_slt"],
+                            "predicted_dart_slt": prediction[
+                                f"pred_{model._get_model_abbreviation()}"
+                            ],
+                            "settlement_point": self.settlement_point,
+                            "model_type": model.model_type,
+                            # Add week metadata
+                            "week_num": week_config["week_num"],
+                            "week_description": week_config["week_description"],
+                            "validation_mode": "progressive",
+                            "train_end_date": week_config["train_end_date"],
+                            "val_start_date": week_config["val_start_date"],
+                            "val_end_date": week_config["val_end_date"],
+                        }
+                        week_predictions.append(prediction_record)
+
+        return week_predictions
+
+    def _create_progressive_output_from_predictions(
+        self, all_predictions: List[Dict]
+    ) -> None:
+        """Create consolidated progressive validation output from collected predictions."""
+        try:
+            print(
+                f"\n📊 Creating progressive validation output from {len(all_predictions)} collected predictions..."
+            )
+
+            if not all_predictions:
+                print("⚠️  No predictions collected during progressive validation")
+                return
+
+            # Create DataFrame from collected predictions
+            consolidated_df = pd.DataFrame(all_predictions)
+
+            # CRITICAL: Sort by week and timestamp for proper time series analysis
+            consolidated_df["utc_ts"] = pd.to_datetime(consolidated_df["utc_ts"])
+            consolidated_df = consolidated_df.sort_values(
+                ["week_num", "utc_ts", "model_type"]
+            ).reset_index(drop=True)
+
+            # Add inverse signed log transformed DART prices for business use
+            consolidated_df["actual_dart_price"] = inverse_signed_log_transform(
+                consolidated_df["actual_dart_slt"]
+            )
+            consolidated_df["predicted_dart_price"] = inverse_signed_log_transform(
+                consolidated_df["predicted_dart_slt"]
+            )
+            consolidated_df["prediction_error_price"] = (
+                consolidated_df["predicted_dart_price"]
+                - consolidated_df["actual_dart_price"]
+            )
+
+            # Save consolidated progressive validation outputs
+            output_csv = Path(self.output_dir) / "model_output_progressive.csv"
+            consolidated_df.to_csv(output_csv, index=False)
+            print(f"  ✅ Saved progressive CSV: {output_csv}")
+
+            db_path = Path(self.output_dir) / "model_output_progressive.db"
+            db_processor = DatabaseProcessor(str(db_path))
+            db_processor.save_to_database(consolidated_df, "model_output_progressive")
+            print(f"  ✅ Saved progressive DB: {db_path}")
+
+            # Summary statistics
+            weeks_in_data = consolidated_df["week_num"].nunique()
+            models_in_data = consolidated_df["model_type"].nunique()
+            print(
+                f"📊 Progressive validation dataset: {len(consolidated_df):,} total predictions"
+            )
+            print(f"📊 Coverage: {weeks_in_data} weeks × {models_in_data} models")
+
+            # Show week coverage
+            week_summary = (
+                consolidated_df.groupby(["week_num", "week_description"])
+                .size()
+                .reset_index(name="predictions")
+            )
+            print(f"📊 Week-by-week coverage:")
+            for _, row in week_summary.iterrows():
+                print(
+                    f"   Week {row['week_num']}: {row['predictions']:,} predictions ({row['week_description']})"
+                )
+
+        except Exception as e:
+            print(f"❌ Progressive model output creation failed: {e}")
+            import traceback
+
+            traceback.print_exc()

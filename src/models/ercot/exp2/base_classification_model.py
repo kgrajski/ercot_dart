@@ -471,6 +471,11 @@ class BaseClassificationModel(BaseExp2Model):
             self.models[hour] = model
             all_results[hour] = results
 
+            # Capture predictions for Analytics Workbench
+            self._capture_predictions(
+                model, X_train, y_train, X_validation, y_validation, hour
+            )
+
             print(
                 f"✅ Hour {hour} completed - Accuracy: {results.get('train_accuracy', 0):.3f}"
             )
