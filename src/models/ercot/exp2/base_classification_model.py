@@ -424,7 +424,10 @@ class BaseClassificationModel(BaseExp2Model):
         }
 
     def train_hourly_models(
-        self, bootstrap_iterations: int = 5, hours_to_train: Optional[List[int]] = None
+        self,
+        bootstrap_iterations: int = 5,
+        hours_to_train: Optional[List[int]] = None,
+        save_results: bool = True,
     ) -> Dict[int, Dict]:
         """Train classification models for each hour."""
 
@@ -483,7 +486,393 @@ class BaseClassificationModel(BaseExp2Model):
         # Store all results
         self.results = all_results
 
-        # Save results and artifacts
-        self._save_results()
+        # Save results and artifacts (only if not in progressive mode)
+        if save_results:
+            self._save_results()
 
         return all_results
+
+    def _save_progressive_predictions(self, all_weeks_predictions: List[Dict]) -> None:
+        """Save accumulated validation predictions for progressive mode trading analysis.
+
+        Args:
+            all_weeks_predictions: List of prediction dicts with week metadata from all weeks
+        """
+        if not all_weeks_predictions:
+            print("⚠️  No progressive predictions to save")
+            return
+
+        try:
+            print(f"\n📊 Saving progressive predictions for trading analysis...")
+
+            # Filter to validation predictions only (trading analysis doesn't need training data)
+            validation_predictions = []
+
+            for prediction in all_weeks_predictions:
+                if prediction.get("dataset_type") == "validation":
+                    validation_predictions.append(prediction)
+
+            if not validation_predictions:
+                print("⚠️  No validation predictions found in progressive data")
+                return
+
+            # Create DataFrame from validation predictions
+            validation_df = pd.DataFrame(validation_predictions)
+
+            # Sort by week number and timestamp for proper time series analysis
+            validation_df["utc_ts"] = pd.to_datetime(validation_df["utc_ts"])
+            validation_df = validation_df.sort_values(
+                ["week_num", "utc_ts", "end_hour"]
+            ).reset_index(drop=True)
+
+            # Save progressive predictions CSV
+            progressive_filename = f"predictions_progressive_{self.model_type}.csv"
+            progressive_csv_path = os.path.join(self.model_dir, progressive_filename)
+            validation_df.to_csv(progressive_csv_path, index=False)
+            print(f"  ✅ Progressive predictions CSV: {progressive_filename}")
+
+            # Save progressive predictions DB
+            progressive_db_filename = f"predictions_progressive_{self.model_type}.db"
+            progressive_db_path = os.path.join(self.model_dir, progressive_db_filename)
+
+            # Use DatabaseProcessor for consistency
+            from src.data.ercot.database import DatabaseProcessor
+
+            db_processor = DatabaseProcessor(progressive_db_path)
+            table_name = f"predictions_progressive_{self.model_type}"
+            db_processor.save_to_database(validation_df, table_name)
+            print(f"  ✅ Progressive predictions DB: {progressive_db_filename}")
+
+            # Summary statistics
+            weeks_covered = validation_df["week_num"].nunique()
+            hours_covered = validation_df["end_hour"].nunique()
+            date_range = f"{validation_df['utc_ts'].min().strftime('%Y-%m-%d')} to {validation_df['utc_ts'].max().strftime('%Y-%m-%d')}"
+
+            print(f"📊 Progressive predictions summary:")
+            print(f"   Total validation predictions: {len(validation_df):,}")
+            print(f"   Weeks covered: {weeks_covered}")
+            print(f"   Hours covered: {hours_covered}")
+            print(f"   Date range: {date_range}")
+            print(f"   Ready for trading strategy analysis! 🚀")
+
+        except Exception as e:
+            print(f"❌ Error saving progressive predictions: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    def _save_progressive_results(self, all_weeks_results: List[Dict]) -> None:
+        """Save accumulated results for progressive mode analysis.
+
+        Args:
+            all_weeks_results: List of result dicts with week metadata from all weeks
+        """
+        if not all_weeks_results:
+            print("⚠️  No progressive results to save")
+            return
+
+        try:
+            print(f"\n📊 Saving progressive results for analysis...")
+
+            # Convert results to DataFrame format (one row per hour per week)
+            results_data = []
+
+            for week_results in all_weeks_results:
+                # Get all hour results for this week (excluding week metadata keys)
+                hour_keys = [k for k in week_results.keys() if isinstance(k, int)]
+
+                for hour in hour_keys:
+                    hour_results = week_results[hour].copy()
+
+                    # Week metadata is already stored in hour_results by _add_week_metadata
+                    # No need to extract and re-add it - just include the hour number
+                    hour_results["end_hour"] = hour
+                    hour_results["settlement_point"] = self.settlement_point
+                    hour_results["model_type"] = self.model_type
+
+                    results_data.append(hour_results)
+
+            if not results_data:
+                print("⚠️  No hour results found in progressive data")
+                return
+
+            # Create DataFrame from results
+            results_df = pd.DataFrame(results_data)
+
+            # Sort by week number and hour for proper analysis
+            results_df = results_df.sort_values(["week_num", "end_hour"]).reset_index(
+                drop=True
+            )
+
+            # Save progressive results CSV
+            progressive_filename = f"results_progressive_{self.model_type}.csv"
+            progressive_csv_path = os.path.join(self.model_dir, progressive_filename)
+            results_df.to_csv(progressive_csv_path, index=False)
+            print(f"  ✅ Progressive results CSV: {progressive_filename}")
+
+            # Save progressive results DB
+            progressive_db_filename = f"results_progressive_{self.model_type}.db"
+            progressive_db_path = os.path.join(self.model_dir, progressive_db_filename)
+
+            from src.data.ercot.database import DatabaseProcessor
+
+            db_processor = DatabaseProcessor(progressive_db_path)
+            table_name = f"results_progressive_{self.model_type}"
+            db_processor.save_to_database(results_df, table_name)
+            print(f"  ✅ Progressive results DB: {progressive_db_filename}")
+
+            # Summary statistics
+            weeks_covered = results_df["week_num"].nunique()
+            hours_covered = results_df["end_hour"].nunique()
+
+            print(f"📊 Progressive results summary:")
+            print(f"   Total result records: {len(results_df):,}")
+            print(f"   Weeks covered: {weeks_covered}")
+            print(f"   Hours covered: {hours_covered}")
+            print(f"   Ready for performance evolution analysis! 📈")
+
+        except Exception as e:
+            print(f"❌ Error saving progressive results: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    def _save_progressive_feature_importance(
+        self, all_weeks_results: List[Dict]
+    ) -> None:
+        """Save accumulated feature importance for progressive mode analysis.
+
+        Args:
+            all_weeks_results: List of result dicts with week metadata from all weeks
+        """
+        if not all_weeks_results:
+            print("⚠️  No progressive feature importance to save")
+            return
+
+        try:
+            print(f"\n📊 Saving progressive feature importance for analysis...")
+
+            # Convert feature importance to DataFrame format (one row per feature per hour per week)
+            importance_data = []
+
+            for week_results in all_weeks_results:
+                # Get all hour results for this week
+                hour_keys = [k for k in week_results.keys() if isinstance(k, int)]
+
+                for hour in hour_keys:
+                    hour_results = week_results[hour]
+
+                    # Extract week metadata from the hour-level results (where it's actually stored)
+                    week_num = hour_results.get("week_num")
+                    week_description = hour_results.get("week_description")
+                    validation_mode = hour_results.get("validation_mode", "progressive")
+                    train_end_date = hour_results.get("train_end_date")
+                    val_start_date = hour_results.get("val_start_date")
+                    val_end_date = hour_results.get("val_end_date")
+
+                    # Extract feature importance if available
+                    if (
+                        "feature_importances" in hour_results
+                        and "feature_names" in hour_results
+                    ):
+                        importances = hour_results["feature_importances"]
+                        feature_names = hour_results["feature_names"]
+
+                        for feature, importance in zip(feature_names, importances):
+                            importance_data.append(
+                                {
+                                    "end_hour": hour,
+                                    "feature": feature,
+                                    "importance": importance,
+                                    "abs_importance": importance,  # Importances are non-negative
+                                    "is_zero": importance == 0,
+                                    "week_num": week_num,
+                                    "week_description": week_description,
+                                    "validation_mode": validation_mode,
+                                    "train_end_date": train_end_date,
+                                    "val_start_date": val_start_date,
+                                    "val_end_date": val_end_date,
+                                    "settlement_point": self.settlement_point,
+                                    "model_type": self.model_type,
+                                }
+                            )
+
+            if not importance_data:
+                print("⚠️  No feature importance found in progressive data")
+                return
+
+            # Create DataFrame from importance data
+            importance_df = pd.DataFrame(importance_data)
+
+            # Sort by week, hour, and importance for proper analysis
+            importance_df = importance_df.sort_values(
+                ["week_num", "end_hour", "importance"], ascending=[True, True, False]
+            ).reset_index(drop=True)
+
+            # Save progressive feature importance CSV
+            progressive_filename = (
+                f"feature_importance_progressive_{self.model_type}.csv"
+            )
+            progressive_csv_path = os.path.join(self.model_dir, progressive_filename)
+            importance_df.to_csv(progressive_csv_path, index=False)
+            print(f"  ✅ Progressive feature importance CSV: {progressive_filename}")
+
+            # Save progressive feature importance DB
+            progressive_db_filename = (
+                f"feature_importance_progressive_{self.model_type}.db"
+            )
+            progressive_db_path = os.path.join(self.model_dir, progressive_db_filename)
+
+            from src.data.ercot.database import DatabaseProcessor
+
+            db_processor = DatabaseProcessor(progressive_db_path)
+            table_name = f"feature_importance_progressive_{self.model_type}"
+            db_processor.save_to_database(importance_df, table_name)
+            print(f"  ✅ Progressive feature importance DB: {progressive_db_filename}")
+
+            # Summary statistics
+            weeks_covered = importance_df["week_num"].nunique()
+            features_covered = importance_df["feature"].nunique()
+            hours_covered = importance_df["end_hour"].nunique()
+
+            print(f"📊 Progressive feature importance summary:")
+            print(f"   Total importance records: {len(importance_df):,}")
+            print(f"   Weeks covered: {weeks_covered}")
+            print(f"   Features tracked: {features_covered}")
+            print(f"   Hours covered: {hours_covered}")
+            print(f"   Ready for feature evolution analysis! 🔍")
+
+        except Exception as e:
+            print(f"❌ Error saving progressive feature importance: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    def _save_progressive_feature_summary(self, all_weeks_results: List[Dict]) -> None:
+        """Save accumulated feature summary for progressive mode analysis.
+
+        Args:
+            all_weeks_results: List of result dicts with week metadata from all weeks
+        """
+        if not all_weeks_results:
+            print("⚠️  No progressive feature summary to save")
+            return
+
+        try:
+            print(f"\n📊 Saving progressive feature summary for analysis...")
+
+            # Convert to feature summary format (one row per feature per week, aggregated across hours)
+            summary_data = []
+
+            for week_results in all_weeks_results:
+                # Get all hour results for this week
+                hour_keys = [k for k in week_results.keys() if isinstance(k, int)]
+
+                # Extract week metadata from the first hour's results (same for all hours in the week)
+                if hour_keys:
+                    first_hour_results = week_results[hour_keys[0]]
+                    week_num = first_hour_results.get("week_num")
+                    week_description = first_hour_results.get("week_description")
+                    validation_mode = first_hour_results.get(
+                        "validation_mode", "progressive"
+                    )
+                    train_end_date = first_hour_results.get("train_end_date")
+                    val_start_date = first_hour_results.get("val_start_date")
+                    val_end_date = first_hour_results.get("val_end_date")
+                else:
+                    continue  # Skip if no hour results
+
+                # Collect feature importance across all hours for this week
+                week_feature_data = {}
+
+                for hour in hour_keys:
+                    hour_results = week_results[hour]
+
+                    if (
+                        "feature_importances" in hour_results
+                        and "feature_names" in hour_results
+                    ):
+                        importances = hour_results["feature_importances"]
+                        feature_names = hour_results["feature_names"]
+
+                        for feature, importance in zip(feature_names, importances):
+                            if feature not in week_feature_data:
+                                week_feature_data[feature] = []
+                            week_feature_data[feature].append(importance)
+
+                # Aggregate feature importance across hours for this week
+                for feature, importances in week_feature_data.items():
+                    if importances:  # Only if we have data
+                        summary_data.append(
+                            {
+                                "feature": feature,
+                                "mean_importance": np.mean(importances),
+                                "max_importance": np.max(importances),
+                                "min_importance": np.min(importances),
+                                "std_importance": np.std(importances),
+                                "hours_nonzero": sum(
+                                    1 for imp in importances if imp > 0
+                                ),
+                                "hours_total": len(importances),
+                                "pct_hours_used": (
+                                    sum(1 for imp in importances if imp > 0)
+                                    / len(importances)
+                                )
+                                * 100,
+                                "week_num": week_num,
+                                "week_description": week_description,
+                                "validation_mode": validation_mode,
+                                "train_end_date": train_end_date,
+                                "val_start_date": val_start_date,
+                                "val_end_date": val_end_date,
+                                "settlement_point": self.settlement_point,
+                                "model_type": self.model_type,
+                            }
+                        )
+
+            if not summary_data:
+                print("⚠️  No feature summary data found in progressive results")
+                return
+
+            # Create DataFrame from summary data
+            summary_df = pd.DataFrame(summary_data)
+
+            # Sort by week and mean importance for analysis
+            summary_df = summary_df.sort_values(
+                ["week_num", "mean_importance"], ascending=[True, False]
+            ).reset_index(drop=True)
+
+            # Save progressive feature summary CSV
+            progressive_filename = f"feature_summary_progressive_{self.model_type}.csv"
+            progressive_csv_path = os.path.join(self.model_dir, progressive_filename)
+            summary_df.to_csv(progressive_csv_path, index=False)
+            print(f"  ✅ Progressive feature summary CSV: {progressive_filename}")
+
+            # Save progressive feature summary DB
+            progressive_db_filename = (
+                f"feature_summary_progressive_{self.model_type}.db"
+            )
+            progressive_db_path = os.path.join(self.model_dir, progressive_db_filename)
+
+            from src.data.ercot.database import DatabaseProcessor
+
+            db_processor = DatabaseProcessor(progressive_db_path)
+            table_name = f"feature_summary_progressive_{self.model_type}"
+            db_processor.save_to_database(summary_df, table_name)
+            print(f"  ✅ Progressive feature summary DB: {progressive_db_filename}")
+
+            # Summary statistics
+            weeks_covered = summary_df["week_num"].nunique()
+            features_covered = summary_df["feature"].nunique()
+
+            print(f"📊 Progressive feature summary:")
+            print(f"   Total summary records: {len(summary_df):,}")
+            print(f"   Weeks covered: {weeks_covered}")
+            print(f"   Features summarized: {features_covered}")
+            print(f"   Ready for feature stability analysis! 🎯")
+
+        except Exception as e:
+            print(f"❌ Error saving progressive feature summary: {e}")
+            import traceback
+
+            traceback.print_exc()

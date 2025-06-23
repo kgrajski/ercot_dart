@@ -113,6 +113,7 @@ class Exp2ModelTrainer:
         # Classification-specific parameters
         classification_strategy: str = "sign_only",
         classification_config: Optional[Dict] = None,
+        save_results: bool = True,  # Control whether to save non-progressive results
         **model_kwargs,
     ) -> Dict:
         """Train a specific classification model type using bootstrap resampling for evaluation.
@@ -126,6 +127,7 @@ class Exp2ModelTrainer:
                            'zscore' for linear models
             classification_strategy: Strategy for target transformation ('sign_only', 'threshold', etc.)
             classification_config: Configuration dictionary for classification strategy
+            save_results: Control whether to save non-progressive results
             **model_kwargs: Additional parameters for model initialization
 
         Returns:
@@ -198,7 +200,9 @@ class Exp2ModelTrainer:
 
         # Train hourly models
         results = model.train_hourly_models(
-            bootstrap_iterations=bootstrap_iterations, hours_to_train=hours_to_train
+            bootstrap_iterations=bootstrap_iterations,
+            hours_to_train=hours_to_train,
+            save_results=save_results,
         )
 
         print(f"\n{model_type.title()} training completed!")
@@ -515,6 +519,7 @@ class Exp2ModelTrainer:
                         model_type=model_type,
                         bootstrap_iterations=bootstrap_iterations,
                         hours_to_train=hours_to_train,
+                        save_results=False,  # Don't save non-progressive results during progressive validation
                         **optimized_experiment_kwargs,
                     )
 
@@ -546,6 +551,40 @@ class Exp2ModelTrainer:
 
         # Create consolidated output using collected predictions
         self._create_progressive_output_from_predictions(all_weeks_predictions)
+
+        # Save progressive predictions and analysis outputs for each model type
+        for model_type in model_types:
+            if model_type in self.trained_models:
+                model = self.trained_models[model_type]
+
+                # Filter predictions for this model type
+                model_predictions = [
+                    pred
+                    for pred in all_weeks_predictions
+                    if pred.get("model_type") == model.model_type
+                ]
+
+                # Call the model's progressive predictions save method
+                if hasattr(model, "_save_progressive_predictions"):
+                    model._save_progressive_predictions(model_predictions)
+
+                # Collect results from all weeks for this model type
+                model_results = []
+                for week_key, week_data in all_weeks_results.items():
+                    if model_type in week_data and week_data[model_type] is not None:
+                        # Add week metadata to the results
+                        week_results = week_data[model_type].copy()
+                        model_results.append(week_results)
+
+                # Call the model's progressive analysis save methods
+                if hasattr(model, "_save_progressive_results"):
+                    model._save_progressive_results(model_results)
+
+                if hasattr(model, "_save_progressive_feature_importance"):
+                    model._save_progressive_feature_importance(model_results)
+
+                if hasattr(model, "_save_progressive_feature_summary"):
+                    model._save_progressive_feature_summary(model_results)
 
         print(f"\n🎉 Progressive validation completed! {actual_weeks} weeks")
         return all_weeks_results
