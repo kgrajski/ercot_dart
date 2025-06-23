@@ -701,14 +701,23 @@ class BaseExp2Model(ABC):
     def _capture_predictions(
         self, model, X_train, y_train, X_validation, y_validation, end_hour
     ):
-        """Capture predictions for Analytics Workbench."""
+        """Capture predictions for Analytics Workbench with enhanced probability scores and raw values."""
         # Get model abbreviation for column naming
         model_abbrev = self._get_model_abbreviation()
 
-        # Make predictions
+        # Make predictions - both classes and probabilities
         y_train_pred = model.predict(X_train)
+        y_train_proba = (
+            model.predict_proba(X_train) if hasattr(model, "predict_proba") else None
+        )
+
         y_validation_pred = (
             model.predict(X_validation) if X_validation is not None else None
+        )
+        y_validation_proba = (
+            model.predict_proba(X_validation)
+            if X_validation is not None and hasattr(model, "predict_proba")
+            else None
         )
 
         # Store training predictions with UTC timestamps from original data
@@ -718,20 +727,35 @@ class BaseExp2Model(ABC):
         train_predictions = []
 
         for i, (idx, row) in enumerate(train_hour_data.iterrows()):
-            train_predictions.append(
-                {
-                    "utc_ts": row[
-                        "utc_ts"
-                    ],  # Use UTC timestamp for internal operations
-                    "local_ts": row["local_ts"],  # Include local_ts as metadata too
-                    "end_hour": end_hour,
-                    "dataset_type": "train",
-                    "actual_dart_slt": y_train.iloc[i],
-                    f"pred_{model_abbrev}": y_train_pred[i],
-                    "settlement_point": self.settlement_point,
-                    "model_type": self.model_type,
-                }
-            )
+            prediction_record = {
+                "utc_ts": row["utc_ts"],  # Use UTC timestamp for internal operations
+                "local_ts": row["local_ts"],  # Include local_ts as metadata too
+                "end_hour": end_hour,
+                "dataset_type": "train",
+                "actual_dart_slt": y_train.iloc[
+                    i
+                ],  # Binary classification target (0/1)
+                "actual_dart_slt_raw": row[
+                    "dart_slt"
+                ],  # Raw DART value before classification
+                f"pred_{model_abbrev}": y_train_pred[i],  # Binary prediction (0/1)
+                "settlement_point": self.settlement_point,
+                "model_type": self.model_type,
+            }
+
+            # Add probability scores if available
+            if y_train_proba is not None:
+                prediction_record[f"pred_{model_abbrev}_prob_class_0"] = y_train_proba[
+                    i
+                ][0]
+                prediction_record[f"pred_{model_abbrev}_prob_class_1"] = y_train_proba[
+                    i
+                ][1]
+                prediction_record[f"pred_{model_abbrev}_confidence"] = max(
+                    y_train_proba[i]
+                )
+
+            train_predictions.append(prediction_record)
 
         # Store validation predictions if available
         validation_predictions = []
@@ -741,20 +765,39 @@ class BaseExp2Model(ABC):
             ].copy()
 
             for i, (idx, row) in enumerate(validation_hour_data.iterrows()):
-                validation_predictions.append(
-                    {
-                        "utc_ts": row[
-                            "utc_ts"
-                        ],  # Use UTC timestamp for internal operations
-                        "local_ts": row["local_ts"],  # Include local_ts as metadata too
-                        "end_hour": end_hour,
-                        "dataset_type": "validation",
-                        "actual_dart_slt": y_validation.iloc[i],
-                        f"pred_{model_abbrev}": y_validation_pred[i],
-                        "settlement_point": self.settlement_point,
-                        "model_type": self.model_type,
-                    }
-                )
+                prediction_record = {
+                    "utc_ts": row[
+                        "utc_ts"
+                    ],  # Use UTC timestamp for internal operations
+                    "local_ts": row["local_ts"],  # Include local_ts as metadata too
+                    "end_hour": end_hour,
+                    "dataset_type": "validation",
+                    "actual_dart_slt": y_validation.iloc[
+                        i
+                    ],  # Binary classification target (0/1)
+                    "actual_dart_slt_raw": row[
+                        "dart_slt"
+                    ],  # Raw DART value before classification
+                    f"pred_{model_abbrev}": y_validation_pred[
+                        i
+                    ],  # Binary prediction (0/1)
+                    "settlement_point": self.settlement_point,
+                    "model_type": self.model_type,
+                }
+
+                # Add probability scores if available
+                if y_validation_proba is not None:
+                    prediction_record[
+                        f"pred_{model_abbrev}_prob_class_0"
+                    ] = y_validation_proba[i][0]
+                    prediction_record[
+                        f"pred_{model_abbrev}_prob_class_1"
+                    ] = y_validation_proba[i][1]
+                    prediction_record[f"pred_{model_abbrev}_confidence"] = max(
+                        y_validation_proba[i]
+                    )
+
+                validation_predictions.append(prediction_record)
 
         # Store in predictions dictionary
         self.predictions[end_hour] = {

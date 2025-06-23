@@ -694,7 +694,9 @@ class Exp2ModelTrainer:
         """Temporarily modify dataset for a specific week's train/validation split."""
         train_end = pd.to_datetime(week_config["train_end_date"])
         val_start = pd.to_datetime(week_config["val_start_date"])
-        val_end = pd.to_datetime(week_config["val_end_date"])
+        val_end = pd.to_datetime(week_config["val_end_date"]) + pd.Timedelta(
+            hours=23, minutes=59, seconds=59
+        )  # Include entire end day
 
         # Store original year column
         self.dataset.df["original_year"] = self.dataset.df["utc_ts"].dt.year
@@ -758,6 +760,7 @@ class Exp2ModelTrainer:
             return week_predictions
 
         model = self.trained_models[model_type]
+        model_abbrev = model._get_model_abbreviation()
 
         # Extract predictions from model's live predictions dict
         if hasattr(model, "predictions") and model.predictions:
@@ -769,10 +772,15 @@ class Exp2ModelTrainer:
                             "local_ts": prediction["local_ts"],
                             "end_hour": end_hour,
                             "dataset_type": dataset_type,
-                            "actual_dart_slt": prediction["actual_dart_slt"],
+                            "actual_dart_slt": prediction[
+                                "actual_dart_slt"
+                            ],  # Binary target (0/1)
+                            "actual_dart_slt_raw": prediction.get(
+                                "actual_dart_slt_raw"
+                            ),  # Raw DART value
                             "predicted_dart_slt": prediction[
-                                f"pred_{model._get_model_abbreviation()}"
-                            ],
+                                f"pred_{model_abbrev}"
+                            ],  # Binary prediction (0/1)
                             "settlement_point": self.settlement_point,
                             "model_type": model.model_type,
                             # Add week metadata
@@ -783,6 +791,19 @@ class Exp2ModelTrainer:
                             "val_start_date": week_config["val_start_date"],
                             "val_end_date": week_config["val_end_date"],
                         }
+
+                        # Add probability scores if available
+                        if f"pred_{model_abbrev}_prob_class_0" in prediction:
+                            prediction_record["predicted_prob_class_0"] = prediction[
+                                f"pred_{model_abbrev}_prob_class_0"
+                            ]
+                            prediction_record["predicted_prob_class_1"] = prediction[
+                                f"pred_{model_abbrev}_prob_class_1"
+                            ]
+                            prediction_record["prediction_confidence"] = prediction[
+                                f"pred_{model_abbrev}_confidence"
+                            ]
+
                         week_predictions.append(prediction_record)
 
         return week_predictions
