@@ -6,6 +6,8 @@
 - [Independent Variables and EDA](#independent-variables-and-eda)
 - [Modeling Experiments](#modeling-experiments)
 - [Backtesting Experiments](#backtesting-experiments)
+- [Conclusion](#conclusion)
+- [References](#references)
 - [Reflections](#reflections)
 
 ## Project Overview
@@ -381,32 +383,28 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ---
 
-- Observation
+## Conclusion
+
+- Regarding the hypothesis that a simple DART sign classifier can form the basis for a trading strategy
   - Naive is a horrible idea.
   - Sign_probability is moving in the right direction.
+  - DART data shows extreme spikes and regime switching
+  - Exploring simple models like these sets a baseline for more advanced methods
 
 - Conclusion
   - Have the workflow working "end-to-end"
   - See workflow/01-kag..., workflow/02-kag...,
   - Can now iterate on the dataset generation side and on the strategy backtesting side
-  - This work has been deeply educational and rewarding.
+  - This work has been deeply educational and has met the objective of .
 
 ---
 
-### References
+## References
 
 - I found these references to be quite useful recent additions to the literature - even though I haven't (yet) progressed to neural networks just yet - I want to stay close to the data!!
   - Xu, J. and Baldick, R.  (2019).  Day-Ahead price forecasting in ERCOT market using neural network approaches.  https://doi.org/10.1145/3307772.3331024
   - Lago, et al. (2021).  Forecasting day-ahead electricity prices: A review of state-of-the-art algorithms, best practices and an open-access benchmark.  https://doi.org/10.1016/j.apenergy.2021.116983
   - Wang, et al. (2024). Deep Learning-Based Electricity Price Forecast for Virtual Bidding in Wholesale Electricity Markets.  https://doi.org/10.48550/arXiv.2412.00062
-  - 
-
----
-
-## Additional Thoughts
-
-- Availability of regime classification as a supplement to raw regression
-- Opportunities for integrating time-aware and probability-based models
 
 ---
 
