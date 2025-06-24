@@ -12,7 +12,7 @@
 
 ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electricity market. This project analyzes and predicts the differences between day-ahead market (DAM) and real-time market (RTM) settlement prices in ERCOT, helping market participants understand price dynamics and make informed trading decisions.
 
-All data in this README are from the ERCOT Loading Zone (Houston) for the period 1/1/2024 - 6/4/205.
+All data in this README are from the ERCOT Loading Zone (Houston) for the period 1/1/2024 - 6/4/2025.
 
 **Key Features:**
 
@@ -32,16 +32,16 @@ Objectives of this project are to:
   - Apply good Data Science practices of data wrangling, ETL, modeling, and visualizations
 - Create a workbench leveraging Factory Method object-oriented pattern to support multiple
   - ERCOT data products and their ETL
-  - Modeling approaces (regression vs classification)
+  - Modeling approaches (regression vs classification)
   - Modeling methods (linear regression, ridge, lasso, xgboost)
   - Back-testing of trading strategies (naive, signed_prob)
 - Experience hands-on working with Cursor (mainly claude-4-sonnet)
-  - Learn The Good, The Bad, and The Ugly of Coding Co-Pilots
+  - Learn benefits and limitations of Coding Co-Pilots
     - Main Learning: The Pilot is accountable for every line of code
     - Subsidiary Learning: Beware of Pilot anthropomorphization and Co-Pilot sycophancy
 - Set stage for production
   - Containerize (Docker)
-  - Productization (SageMaker?  DataBricks?)
+  - Productization (SageMaker?  Databricks?)
   - Agent Integration (LangChain, LangGraph)
 
 The gory details on individual data and individual modeling experiments can be found in the /config directory.
@@ -230,7 +230,7 @@ Solar power generation forecast (log transformed MWh) by geographic zone.  Zoome
 
 ![Wind Power Generation Forecast Prices](reports/figures/initial_dart_houston/wind_time_series.png)
 
-Wind power generation forecast (log transformed MHw) by geographic zone.
+Wind power generation forecast (log transformed MWh) by geographic zone.
 
 ---
 
@@ -314,7 +314,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ## Modeling Experiments
 
-- Executied three introductory experiments involving different combinations of data sets and modeling methods
+- Executed three introductory experiments involving different combinations of data sets and modeling methods
 
 ### DART Price Data Only (Exp0)
 - Explored the hypothesis that all the information that is needed for DART forecasting is already embedded in the DART price historical data.
@@ -390,7 +390,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
   - Have the workflow working "end-to-end"
   - See workflow/01-kag..., workflow/02-kag...,
   - Can now iterate on the dataset generation side and on the strategy backtesting side
-  - Fun!
+  - This work has been deeply educational and rewarding.
 
 ---
 
@@ -404,7 +404,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ---
 
-## Backtesting Experiments
+## Additional Thoughts
 
 - Availability of regime classification as a supplement to raw regression
 - Opportunities for integrating time-aware and probability-based models
