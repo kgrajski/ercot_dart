@@ -312,7 +312,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 ---
 
 
-## Data and Modeling Experiments
+## Modeling Experiments
 
 - Executied three introductory experiments involving different combinations of data sets and modeling methods
 
@@ -337,6 +337,8 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 - Hypothesis: a simple DART sign classifier can form the basis for a trading strategy.
   - One can do so much more here.  Set thresholds bimodally.  Use unsupervised methods (see above) to reflect natural DART clusters, and so on.
   - Here, we start simple.  MVP-style and then iterate.
+
+## Backtesting Experiments
 
 ### DART Price Sign (Positive or Negative) Forecasting as a Trading Signal (Exp2 Data; Exp0 Model)
 - The workbench was upgraded to do progressive validation.
