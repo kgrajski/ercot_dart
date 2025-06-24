@@ -405,6 +405,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
   - Xu, J. and Baldick, R.  (2019).  Day-Ahead price forecasting in ERCOT market using neural network approaches.  https://doi.org/10.1145/3307772.3331024
   - Lago, et al. (2021).  Forecasting day-ahead electricity prices: A review of state-of-the-art algorithms, best practices and an open-access benchmark.  https://doi.org/10.1016/j.apenergy.2021.116983
   - Wang, et al. (2024). Deep Learning-Based Electricity Price Forecast for Virtual Bidding in Wholesale Electricity Markets.  https://doi.org/10.48550/arXiv.2412.00062
+  - Kazempour, Jalal.  (2025).  Technical University of Denmark Course: Renewables in Electricity Markets.  Here is a link to the Lecture 0: https://www.youtube.com/watch?v=QmdBpKUP4Ek
 
 ---
 
@@ -412,6 +413,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 What I would do differently
 - Not too much!
+  - The experiments used data and forecasted to respect ERCOT DAM and RT operations - no leakage no cheating
   - "Respect the data" means get hands on with it, ask a lot of questions, generate visualizations
   - "Hypothesis driven" means actively anticipate and test the results of each and every experiment and plot
   - You could argue why not jump directly to one of the major Data Science platforms for that?
@@ -419,6 +421,21 @@ What I would do differently
   - Many studies focus on the end-result - which nearly inevitably end with "hot" results.  Here, I wanted to share the step-by-step journey to include the false alarms amongst the hints of insight.
 - Architect for future scaling.
   - ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect the workbench to operate on a single settlement point and use an external method to scale to the full range.
+
+What I might do next
+- Modeling
+  - Switch from delivery hour-specific models to full sequence-to-sequence (seq2seg) modeling
+  - We have a nice baseline to assess improvements rather than just chasing latest hot methods
+- Data
+  - Incorporate additional features
+  - Explore additional settlement points
+    - We looked at Houston LZ in some depth
+    - How similar or different are other LZ? Hubs? Buses?  How would be classify them?
+- Trading
+  - Maybe not every Hub, LZ, and Bus are equally "interesting" for trading
+  - But here I would welcome to collab with domain experts
+    - What are your pain points?
+    - How can solid Data Science (and AI judiciously applied) help?
 
 ---
 
