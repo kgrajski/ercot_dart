@@ -57,7 +57,9 @@ def main():
 
     # **NEW: Progressive validation option**
     run_progressive_validation = True  # Set to True for progressive validation
-    num_weeks = 2  # Number of weeks for progressive validation (testing with 2 weeks)
+    num_weeks = (
+        None  # Number of weeks for progressive validation (testing with 2 weeks)
+    )
     verbose_training = False  # Set to True for detailed training output per hour
 
     print(
@@ -109,6 +111,7 @@ def main():
                 bootstrap_iterations=bootstrap_iterations,  # Fast for testing
                 num_weeks=num_weeks,  # Pass configured number of weeks
                 classification_strategy="sign_only",  # Start with sign-only classification
+                use_dart_features=False,  # 🔥 EXPERIMENT: Exclude DART lag/rolling features (NO DART FEATURES)
             )
         else:
             # Run standard yearly validation
@@ -116,6 +119,7 @@ def main():
                 model_types=model_types,
                 bootstrap_iterations=bootstrap_iterations,  # Fast for testing
                 classification_strategy="sign_only",  # Start with sign-only classification
+                use_dart_features=False,  # 🔥 EXPERIMENT: Exclude DART lag/rolling features (NO DART FEATURES)
             )
 
         print(f"** Completed modeling for {spp_loc}")

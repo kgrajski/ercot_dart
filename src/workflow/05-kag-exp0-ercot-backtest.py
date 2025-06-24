@@ -39,9 +39,12 @@ def main():
     processed_data_date = "2025-06-04"
     data_exp = "exp2"  # Source experiment for data
     backtest_exp = "exp0"  # Backtesting experiment identifier
-    strategy_types = ["naive"]
+    strategy_types = ["naive", "sign_prob"]  # Test both strategies
     initial_capital = 10000.0
-    transaction_cost = 0.5
+    transaction_cost = 0.05  # 5% transaction cost (more realistic)
+
+    # New: Probability-based strategy configuration
+    prob_percentile = 0.95  # Only trade predictions with confidence >= 95th percentile (more selective)
 
     # Optional: Filter to specific hours (None = all hours)
     # target_hours = [16, 17, 18, 19]  # Peak hours only
@@ -80,6 +83,7 @@ def main():
         base_study_path = Path(data_dir) / spp_loc
 
         # Source data paths (from modeling experiment)
+        # In the future, we might point at a directory and process all the modeling sub-folders
         predictions_file = (
             base_study_path
             / "modeling"
@@ -113,9 +117,10 @@ def main():
             print("   Running backtests...")
             results = strategy_runner.run_backtest(
                 predictions_file=str(predictions_file),
+                transaction_cost=transaction_cost,
                 strategy_types=strategy_types,
                 initial_capital=initial_capital,
-                transaction_cost=transaction_cost,
+                prob_percentile=prob_percentile,
             )
 
             # Print summary for this settlement point

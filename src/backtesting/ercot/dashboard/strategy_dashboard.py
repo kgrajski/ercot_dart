@@ -2,6 +2,9 @@
 
 This module creates detailed hour-specific dashboards showing financial performance,
 prediction accuracy, feature evolution, and trade analysis.
+
+ARCHITECTURE: This module is now DISPLAY-ONLY. All metrics calculations are 
+handled by the ERCOTTradeAnalytics class (single source of truth).
 """
 
 from typing import Dict
@@ -11,6 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from src.backtesting.ercot.analytics.trade_analytics import create_analytics_engine
 from src.features.ercot.visualization import COLOR_SEQUENCE
 from src.features.ercot.visualization import PROFESSIONAL_COLORS
 from src.features.ercot.visualization import apply_professional_axis_styling
@@ -25,6 +29,8 @@ def create_strategy_dashboard(
 ):
     """Create detailed strategy dashboard for a specific hour.
 
+    REFACTORED: Now uses centralized analytics engine for all calculations.
+
     Args:
         strategy_results: Dictionary of strategy results
         target_hour: Hour to focus on (0-23)
@@ -32,6 +38,9 @@ def create_strategy_dashboard(
         settlement_point: Settlement point for title
     """
     print(f"📊 Creating strategy dashboard for hour {target_hour:02d}...")
+
+    # SINGLE SOURCE OF TRUTH: Create analytics engine
+    analytics = create_analytics_engine(strategy_results)
 
     # Create 2x2 subplot layout
     fig = make_subplots(
@@ -66,18 +75,18 @@ def create_strategy_dashboard(
 
         color = strategy_colors[strategy_name]
 
-        # Filter data for target hour
-        trades_df = pd.DataFrame(results["trades"])
+        # GET DATA FROM SINGLE SOURCE OF TRUTH
+        trades_df = analytics.get_trades_dataframe(strategy_name)
         hour_trades = trades_df[trades_df["entry_hour"] == target_hour].copy()
 
+        # Portfolio data (still from original results for now)
         portfolio_df = pd.DataFrame(results["portfolio_values"])
         hour_portfolio = portfolio_df[portfolio_df["end_hour"] == target_hour].copy()
 
         if hour_trades.empty:
             continue
 
-        # Convert timestamps
-        hour_trades["entry_time"] = pd.to_datetime(hour_trades["entry_time"])
+        # Convert portfolio timestamps
         hour_portfolio["utc_ts"] = pd.to_datetime(hour_portfolio["utc_ts"])
 
         # Add strategy info for CSV export
@@ -101,33 +110,26 @@ def create_strategy_dashboard(
             col=1,
         )
 
-        # Plot 2: Prediction Accuracy
-        # Create bins for actual vs predicted comparison
-        hour_trades["correct_prediction"] = (hour_trades["actual_dart_slt"] > 0) == (
-            hour_trades["entry_prediction"] > 0
+        # Plot 2: Prediction Accuracy - USING SINGLE SOURCE OF TRUTH
+        weekly_accuracy = analytics.get_weekly_accuracy_by_hour(
+            strategy_name, target_hour
         )
 
-        accuracy_over_time = (
-            hour_trades.set_index("entry_time")
-            .resample("W")["correct_prediction"]
-            .mean()
-            * 100
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=accuracy_over_time.index,
-                y=accuracy_over_time.values,
-                mode="lines+markers",
-                name=f"{strategy_name} Accuracy",
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=False,
-                hovertemplate="<b>%{fullData.name}</b><br>Week: %{x}<br>Accuracy: %{y:.1f}%<extra></extra>",
-            ),
-            row=1,
-            col=2,
-        )
+        if not weekly_accuracy.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=weekly_accuracy["week_start"],
+                    y=weekly_accuracy["accuracy_pct"],
+                    mode="lines+markers",
+                    name=f"{strategy_name} Accuracy",
+                    line=dict(color=color, width=2),
+                    marker=dict(size=6),
+                    showlegend=False,
+                    hovertemplate="<b>%{fullData.name}</b><br>Week: %{x}<br>Accuracy: %{y:.1f}%<extra></extra>",
+                ),
+                row=1,
+                col=2,
+            )
 
         # Plot 3: P&L Distribution
         fig.add_trace(
@@ -144,14 +146,16 @@ def create_strategy_dashboard(
             col=1,
         )
 
-        # Plot 4: Weekly Performance
-        if "week_num" in hour_trades.columns:
-            weekly_pnl = hour_trades.groupby("week_num")["pnl"].sum()
+        # Plot 4: Weekly Performance - USING SINGLE SOURCE OF TRUTH
+        weekly_performance = analytics.get_weekly_performance_by_hour(
+            strategy_name, target_hour
+        )
 
+        if not weekly_performance.empty:
             fig.add_trace(
                 go.Bar(
-                    x=weekly_pnl.index,
-                    y=weekly_pnl.values,
+                    x=weekly_performance["week_num"],
+                    y=weekly_performance["total_pnl"],
                     name=f"{strategy_name} Weekly P&L",
                     marker_color=color,
                     opacity=0.7,
@@ -184,32 +188,19 @@ def create_strategy_dashboard(
     fig.update_yaxes(title_text="Frequency", row=2, col=1)
     fig.update_yaxes(title_text="Weekly P&L ($)", row=2, col=2)
 
-    # Add hour-specific statistics
+    # Add hour-specific statistics - USING SINGLE SOURCE OF TRUTH
     if strategy_results:
-        first_strategy = list(strategy_results.values())[0]
-        trades_df = pd.DataFrame(first_strategy["trades"])
-        hour_trades = trades_df[trades_df["entry_hour"] == target_hour]
+        first_strategy = list(strategy_results.keys())[0]
+        hour_stats = analytics.get_hour_statistics_summary(first_strategy, target_hour)
 
-        if not hour_trades.empty:
-            hour_stats = {
-                "total_trades": len(hour_trades),
-                "win_rate": (hour_trades["pnl"] > 0).mean() * 100,
-                "avg_pnl": hour_trades["pnl"].mean(),
-                "total_pnl": hour_trades["pnl"].sum(),
-                "accuracy": (
-                    (hour_trades["actual_dart_slt"] > 0)
-                    == (hour_trades["entry_prediction"] > 0)
-                ).mean()
-                * 100,
-            }
-
+        if hour_stats:
             annotations_text = (
                 f"<b>Hour {target_hour:02d} Statistics</b><br>"
-                f"Total Trades: {hour_stats['total_trades']}<br>"
-                f"Win Rate: {hour_stats['win_rate']:.1f}%<br>"
-                f"Avg P&L: ${hour_stats['avg_pnl']:.2f}<br>"
-                f"Total P&L: ${hour_stats['total_pnl']:.2f}<br>"
-                f"Prediction Accuracy: {hour_stats['accuracy']:.1f}%"
+                f"Total Trades: {hour_stats['total_trades_formatted']}<br>"
+                f"Win Rate: {hour_stats['win_rate_formatted']}<br>"
+                f"Avg P&L: {hour_stats['avg_pnl_formatted']}<br>"
+                f"Total P&L: {hour_stats['total_pnl_formatted']}<br>"
+                f"Prediction Accuracy: {hour_stats['prediction_accuracy_formatted']}"
             )
 
             fig.add_annotation(
@@ -260,21 +251,19 @@ def create_strategy_dashboard(
 def create_trade_analysis_table(
     strategy_results: Dict, target_hour: int
 ) -> pd.DataFrame:
-    """Create detailed trade analysis table for a specific hour."""
+    """Create detailed trade analysis table for a specific hour.
+
+    REFACTORED: Now uses centralized analytics engine.
+    """
+    analytics = create_analytics_engine(strategy_results)
     all_trades = []
 
-    for strategy_name, results in strategy_results.items():
-        if not results or not results["trades"]:
-            continue
-
-        trades_df = pd.DataFrame(results["trades"])
+    for strategy_name in strategy_results.keys():
+        trades_df = analytics.get_trades_dataframe(strategy_name)
         hour_trades = trades_df[trades_df["entry_hour"] == target_hour].copy()
 
         if not hour_trades.empty:
             hour_trades["strategy"] = strategy_name
-            hour_trades["correct_prediction"] = (
-                hour_trades["actual_dart_slt"] > 0
-            ) == (hour_trades["entry_prediction"] > 0)
             all_trades.append(hour_trades)
 
     if all_trades:
@@ -288,24 +277,28 @@ def create_trade_analysis_table(
             "entry_prediction",
             "actual_dart_slt",
             "pnl",
-            "correct_prediction",
+            "correct_prediction",  # Using the authoritative field
             "week_num",
         ]
 
-        return combined_trades[analysis_cols].sort_values("entry_time")
+        available_cols = [
+            col for col in analysis_cols if col in combined_trades.columns
+        ]
+        return combined_trades[available_cols].sort_values("entry_time")
 
     return pd.DataFrame()
 
 
 def calculate_hourly_risk_metrics(strategy_results: Dict, target_hour: int) -> Dict:
-    """Calculate detailed risk metrics for a specific hour."""
+    """Calculate detailed risk metrics for a specific hour.
+
+    REFACTORED: Now uses centralized analytics engine.
+    """
+    analytics = create_analytics_engine(strategy_results)
     risk_metrics = {}
 
-    for strategy_name, results in strategy_results.items():
-        if not results or not results["trades"]:
-            continue
-
-        trades_df = pd.DataFrame(results["trades"])
+    for strategy_name in strategy_results.keys():
+        trades_df = analytics.get_trades_dataframe(strategy_name)
         hour_trades = trades_df[trades_df["entry_hour"] == target_hour]
 
         if hour_trades.empty:
@@ -340,10 +333,7 @@ def create_hours_overlay_dashboard(
 ):
     """Create hours overlay dashboard showing all hours on the same plots.
 
-    This addresses the conceptual issue with per-hour portfolio values by showing:
-    1. Cumulative returns by hour (not absolute portfolio values)
-    2. Prediction accuracy trends by hour
-    3. Weekly performance comparison across hours
+    REFACTORED: Now uses centralized analytics engine for all calculations.
 
     Args:
         strategy_results: Dictionary of strategy results
@@ -352,14 +342,17 @@ def create_hours_overlay_dashboard(
     """
     print(f"📊 Creating hours overlay dashboard...")
 
+    # SINGLE SOURCE OF TRUTH: Create analytics engine
+    analytics = create_analytics_engine(strategy_results)
+
     # Create 3x1 subplot layout (3 rows, 1 column for better use of horizontal space)
     fig = make_subplots(
         rows=3,
         cols=1,
         subplot_titles=[
-            "Cumulative Returns by Hour",
-            "Prediction Accuracy by Hour",
-            "Weekly Performance by Hour",
+            "Per Hour Contribution to Cumulative Returns Time Series",
+            "Weekly Per Hour Contribution to Cumulative Returns Time Series",
+            "Weekly Per Hour Accuracy Rate Time Series",
         ],
         specs=[
             [{"secondary_y": False}],
@@ -374,86 +367,76 @@ def create_hours_overlay_dashboard(
         if not results or not results["trades"]:
             continue
 
-        trades_df = pd.DataFrame(results["trades"])
-        trades_df["entry_time"] = pd.to_datetime(trades_df["entry_time"])
-
-        # Get all unique hours
-        available_hours = sorted(trades_df["entry_hour"].unique())
+        # GET ALL HOURS FROM SINGLE SOURCE OF TRUTH
+        hourly_summary = analytics.get_all_hours_summary(strategy_name)
+        available_hours = sorted(hourly_summary["hour"].tolist())
 
         # Color scheme: use different colors for different hours
         for i, hour in enumerate(available_hours):
             color = COLOR_SEQUENCE[i % len(COLOR_SEQUENCE)]
-            hour_trades = trades_df[trades_df["entry_hour"] == hour].copy()
 
-            if hour_trades.empty:
-                continue
-
-            # Plot 1: Cumulative Returns by Hour (not absolute portfolio value)
-            hour_trades_sorted = hour_trades.sort_values("entry_time")
-            cumulative_returns = hour_trades_sorted["pnl"].cumsum()
-
-            fig.add_trace(
-                go.Scatter(
-                    x=hour_trades_sorted["entry_time"],
-                    y=cumulative_returns,
-                    mode="lines+markers",
-                    name=f"Hour {hour:02d}",
-                    line=dict(color=color, width=2),
-                    marker=dict(size=4),
-                    legendgroup=f"hour_{hour}",
-                    hovertemplate=f"<b>Hour {hour:02d}</b><br>Time: %{{x}}<br>Cumulative Return: $%{{y:,.2f}}<extra></extra>",
-                ),
-                row=1,
-                col=1,
+            # Plot 1: Cumulative Returns by Hour - USING SINGLE SOURCE OF TRUTH
+            cumulative_data = analytics.get_cumulative_returns_by_hour(
+                strategy_name, hour
             )
 
-            # Plot 2: Prediction Accuracy by Hour (weekly rolling)
-            hour_trades["correct_prediction"] = (
-                hour_trades["actual_dart_slt"] > 0
-            ) == (hour_trades["entry_prediction"] > 0)
-
-            # Weekly accuracy calculation
-            weekly_accuracy = (
-                hour_trades.set_index("entry_time")
-                .resample("W")["correct_prediction"]
-                .mean()
-                * 100
-            )
-
-            if len(weekly_accuracy) > 0:
+            if not cumulative_data.empty:
                 fig.add_trace(
                     go.Scatter(
-                        x=weekly_accuracy.index,
-                        y=weekly_accuracy.values,
+                        x=cumulative_data["entry_time"],
+                        y=cumulative_data["cumulative_returns"],
                         mode="lines+markers",
                         name=f"Hour {hour:02d}",
                         line=dict(color=color, width=2),
-                        marker=dict(size=6),
+                        marker=dict(size=4),
                         legendgroup=f"hour_{hour}",
-                        showlegend=False,
-                        hovertemplate=f"<b>Hour {hour:02d}</b><br>Week: %{{x}}<br>Accuracy: %{{y:.1f}}%<extra></extra>",
+                        hovertemplate=f"<b>Hour {hour:02d}</b><br>Date: %{{x|%Y-%m-%d}}<br>Cumulative Return: $%{{y:,.2f}}<extra></extra>",
                     ),
-                    row=2,
+                    row=1,
                     col=1,
                 )
 
-            # Plot 3: Weekly Performance by Hour
-            if "week_num" in hour_trades.columns:
-                weekly_pnl = hour_trades.groupby("week_num")["pnl"].sum()
+            # Plot 2: Weekly Performance by Hour - USING SINGLE SOURCE OF TRUTH
+            weekly_performance = analytics.get_weekly_performance_by_hour(
+                strategy_name, hour
+            )
 
-                # Use slight offset for x-position to avoid overlap
-                x_offset = (i - len(available_hours) / 2) * 0.02
+            if not weekly_performance.empty:
+                # Use integer week numbers for better display
+                week_numbers = weekly_performance["week_num"].round().astype(int)
+                # Use slight offset for x-position to avoid overlap but keep centered
+                x_offset = (i - len(available_hours) / 2) * 0.03
 
                 fig.add_trace(
                     go.Bar(
-                        x=weekly_pnl.index + x_offset,
-                        y=weekly_pnl.values,
+                        x=week_numbers + x_offset,
+                        y=weekly_performance["total_pnl"],
                         name=f"Hour {hour:02d}",
                         marker_color=color,
                         opacity=0.7,
                         legendgroup=f"hour_{hour}",
                         showlegend=False,
                         hovertemplate=f"<b>Hour {hour:02d}</b><br>Week: %{{x}}<br>P&L: $%{{y:.2f}}<extra></extra>",
+                    ),
+                    row=2,
+                    col=1,
+                )
+
+            # Plot 3: Prediction Accuracy by Hour - USING SINGLE SOURCE OF TRUTH
+            weekly_accuracy = analytics.get_weekly_accuracy_by_hour(strategy_name, hour)
+
+            if not weekly_accuracy.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=weekly_accuracy["week_start"],
+                        y=weekly_accuracy["accuracy_pct"],
+                        mode="lines+markers",
+                        name=f"Hour {hour:02d}",
+                        line=dict(color=color, width=2),
+                        marker=dict(size=6),
+                        legendgroup=f"hour_{hour}",
+                        showlegend=False,
+                        hovertemplate=f"<b>Hour {hour:02d}</b><br>Week Start: %{{x|%Y-%m-%d}}<br>Accuracy: %{{y:.1f}}%<extra></extra>",
                     ),
                     row=3,
                     col=1,
@@ -493,14 +476,20 @@ def create_hours_overlay_dashboard(
     fig.update_layout(**layout)
     apply_professional_axis_styling(fig, rows=3, cols=1)
 
-    # Update axis labels
+    # Update axis labels with improved formatting
     fig.update_xaxes(title_text="Date", row=1, col=1)
-    fig.update_xaxes(title_text="Week", row=2, col=1)
-    fig.update_xaxes(title_text="Week Number", row=3, col=1)
+    fig.update_xaxes(
+        title_text="Week Number",
+        row=2,
+        col=1,
+        dtick=1,  # Show integer week numbers
+        tickmode="linear",  # Ensure linear spacing
+    )
+    fig.update_xaxes(title_text="Week", row=3, col=1)
 
     fig.update_yaxes(title_text="Cumulative Return ($)", row=1, col=1)
-    fig.update_yaxes(title_text="Accuracy (%)", row=2, col=1)
-    fig.update_yaxes(title_text="Weekly P&L ($)", row=3, col=1)
+    fig.update_yaxes(title_text="Weekly P&L ($)", row=2, col=1)
+    fig.update_yaxes(title_text="Accuracy (%)", row=3, col=1)
 
     # Save HTML dashboard
     fig.write_html(

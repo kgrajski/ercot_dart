@@ -1,9 +1,12 @@
-# ERCOT DART Price Prediction
+# ERCOT DART Price Prediction Workbench
 
 - [Project Overview](#project-overview)
+- [Project Objectives](#project-objectives)
 - [Dependent Variable](#dependent-variable)
 - [Independent Variables and EDA](#independent-variables-and-eda)
-- [Next Steps](#next-steps)
+- [Modeling Experiments](#modeling-experiments)
+- [Backtesting Experiments](#backtesting-experiments)
+- [Next Steps](#next-steps))
 
 ## Project Overview
 
@@ -12,14 +15,38 @@ ERCOT DART (Day-Ahead Real-Time) price prediction system for the Texas electrici
 All data in this README are from the ERCOT Loading Zone (Houston) for the period 1/1/2024 - 6/4/205.
 
 **Key Features:**
+
 - Historical ERCOT price data collection via official API (See: https://www.ercot.com/services/mdt/data-portal)
 - Comprehensive exploratory data analysis of DART patterns
 - Time series feature engineering for price prediction
 - Machine learning models for DART forecasting
 - Rich visualization suite for market analysis
+- Flexible framework for modeling regression and classification
+- Framework for evaluating various and sundry trading strategies
 
+## Project Objectives
+
+Objectives of this project are to:
+- Attain knowledge of wholesale electricity markets through "learning by doing"
+  - ERCOT appealed on the basis of superb educational resources and Public API
+  - Apply good Data Science practices of data wrangling, ETL, modeling, and visualizations
+- Create a workbench leveraging Factory Method object-oriented pattern to support multiple
+  - ERCOT data products and their ETL
+  - Modeling approaces (regression vs classification)
+  - Modeling methods (linear regression, ridge, lasso, xgboost)
+  - Back-testing of trading strategies (naive, signed_prob)
+- Experience hands-on working with Cursor (mainly claude-4-sonnet)
+  - Learn The Good, The Bad, and The Ugly of Coding Co-Pilots
+    - Main Learning: The Pilot is accountable for every line of code
+    - Subsidiary Learning: Beware of Pilot anthropomorphization and Co-Pilot sycophancy
+- Set stage for production
+  - Containerize (Docker)
+  - Productization (SageMaker?  DataBricks?)
+  - Agent Integration (LangChain, LangGraph)
 
 ## Dependent Variable
+
+The dependent variable for this project is the Real-Time price vs Day-Ahead Market price for a given settlement point.  As noted, we've chosen to develop this workbench using the Houston LZ data.  As presented below, we settle as our dependent variable the signed log transform of the difference: real-time minus DAM price.
 
 ### Temporal Dynamics
 
@@ -142,9 +169,9 @@ Sign transition summary:
 
 Summary:
 - Select independent variables that conform with ERCOT operations
-  - Do no "leak" the future into the modeling
+  - Do not "leak" the future into the modeling
   - To use lagged DART values, we must use actual last known (and not merely 24-hours prior)
-- Define five categories of independent variables
+- Define categories of independent variables
   - DART lagged prices
   - DART historical rolling prices
   - Load forecast (from 6AM daily report np3-565-cd)
@@ -282,9 +309,25 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ---
 
-## Next Steps
 
-These insights establish a strong foundation for downstream forecasting and classification models. They suggest:
-- Rich temporal and categorical structure in DART behavior
+## Modeling Experiments
+
+
 - Availability of regime classification as a supplement to raw regression
 - Opportunities for integrating time-aware and probability-based models
+
+---
+
+## Backtesting Experiments
+
+## Reflections
+
+What I would do differently
+- Not too much!
+  - "Respect the data" means get hands on with it, ask a lot of questions, generate visualizations
+  - You could argue why not jump directly to one of the major Data Science platforms for that?  With a Co-Pilot it is astounding how quickly one can generate and customize quite complex plots!
+- Scaling.  ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect it to operate on a single settlement point and use an external method to scale to the full range.
+
+---
+
+

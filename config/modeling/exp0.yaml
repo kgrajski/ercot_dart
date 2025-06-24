@@ -1,0 +1,76 @@
+# Modeling Experiment 0: ERCOT Trading Strategy Backtesting
+metadata:
+  created_date: "2025-01-02"
+  author: "kag"
+  status: "completed"
+  last_updated: "2025-01-02"
+
+description: |
+  Trading strategy backtesting framework for ERCOT DART price predictions.
+  Tests naive and probability-based strategies using XGBoost classification outputs.
+
+data_source:
+  experiment: "data/exp2"  # Uses classification dataset from data exp2
+  predictions_file: "predictions_progressive_xgboost_classification.csv"
+  date: "2025-06-04"
+
+key_achievements:
+  - ✅ Factory pattern strategy framework
+  - ✅ Independent betting model (per-hour trades)
+  - ✅ Professional financial dashboards
+  - ✅ Probability-based threshold strategies
+  - ✅ Hour-specific confidence thresholds
+  - ✅ Single source of truth analytics
+  - ✅ Comprehensive risk metrics
+
+strategies:
+  naive:
+    description: "Trade every prediction (1-to-1 signal following)"
+    position_size: "$1 per trade"
+    signals: "All binary predictions from XGBoost"
+    
+  sign_prob:
+    description: "Trade only high-confidence predictions"
+    position_size: "$1 per trade" 
+    threshold_method: "Hour-specific 90th percentile confidence"
+    trade_reduction: "~95% fewer trades vs naive"
+
+risk_management:
+  transaction_cost: "5% per trade (realistic)"
+  initial_capital: "$10,000"
+  position_sizing: "Fixed $1 per trade"
+  no_leverage: "Cash-only positions"
+
+performance_results:
+  naive_strategy:
+    return_pct: "-13.46%"
+    total_trades: "3,527"
+    description: "Consistent losses from overtrading"
+    
+  sign_prob_strategy:
+    return_pct: "-0.86%"
+    total_trades: "193"
+    description: "95% trade reduction, 57% better returns"
+
+technical_features:
+  architecture: "Factory pattern with BaseStrategy inheritance"
+  analytics: "ERCOTTradeAnalytics centralized calculation engine"
+  dashboards: "Professional HTML/PNG outputs with Plotly"
+  data_outputs: "Comprehensive CSV exports for analysis"
+
+key_learnings:
+  - Confidence filtering dramatically improves risk-adjusted returns
+  - High transaction costs require selective trading
+  - Hour-specific patterns vary significantly
+  - Single source of truth prevents calculation inconsistencies
+  - Visual clarity essential for strategy communication
+
+limitations:
+  - Data leakage in threshold calculation (uses backtest data)
+  - Negative returns across all strategies
+  - Academic tool rather than production system
+  - Single settlement point focus
+  - No live data integration
+
+workflow: "05-kag-exp0-ercot-backtest.py"
+output_location: "data/studies/exp2/2025-06-04/{settlement_point}/backtest/exp0/" 

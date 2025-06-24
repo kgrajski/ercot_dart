@@ -21,6 +21,7 @@ from src.backtesting.ercot.dashboard.strategy_dashboard import (
 )
 from src.backtesting.ercot.dashboard.strategy_dashboard import create_strategy_dashboard
 from src.backtesting.ercot.strategies.naive_strategy import NaiveStrategy
+from src.backtesting.ercot.strategies.sign_prob_strategy import SignProbStrategy
 
 
 class ERCOTStrategyRunner:
@@ -33,6 +34,7 @@ class ERCOTStrategyRunner:
     # Available strategy types and their implementations (factory pattern)
     STRATEGY_REGISTRY = {
         "naive": NaiveStrategy,
+        "sign_prob": SignProbStrategy,
         # Future strategies can be added here:
         # "momentum": MomentumStrategy,
         # "mean_reversion": MeanReversionStrategy,
@@ -64,21 +66,23 @@ class ERCOTStrategyRunner:
     def run_backtest(
         self,
         predictions_file: str,
+        transaction_cost: float,  # Required parameter - must be provided by caller
         strategy_types: List[str] = None,
         initial_capital: float = 10000.0,
-        transaction_cost: float = 0.5,
         target_hours: List[int] = None,
+        prob_percentile: float = 0.95,  # New: For probability-based strategies
         **strategy_kwargs,
     ) -> Dict:
         """Run backtest for multiple strategies.
 
         Args:
             predictions_file: Path to predictions CSV file
+            transaction_cost: Fixed cost per trade
             strategy_types: List of strategy types to run. If None, uses ['naive']
             initial_capital: Starting capital for strategies
-            transaction_cost: Fixed cost per trade
             target_hours: List of hours to filter (e.g., [16, 17, 18] for peak hours).
                          If None, uses all hours.
+            prob_percentile: Probability percentile for probability-based strategies
             **strategy_kwargs: Additional parameters passed to strategies
 
         Returns:
@@ -129,6 +133,7 @@ class ERCOTStrategyRunner:
                     predictions_df=predictions_df,
                     initial_capital=initial_capital,
                     transaction_cost=transaction_cost,
+                    prob_percentile=prob_percentile,
                     **strategy_kwargs,
                 )
 
@@ -183,6 +188,7 @@ class ERCOTStrategyRunner:
         predictions_df: pd.DataFrame,
         initial_capital: float,
         transaction_cost: float,
+        prob_percentile: float,
         **strategy_kwargs,
     ) -> Dict:
         """Run backtest for a single strategy."""
@@ -196,12 +202,16 @@ class ERCOTStrategyRunner:
         # Create strategy instance with label for identification
         strategy_class = self.STRATEGY_REGISTRY[strategy_type]
         strategy = strategy_class(
+            transaction_cost=transaction_cost,
             strategy_name=strategy_label,  # Use label instead of type for unique identification
             initial_capital=initial_capital,
-            transaction_cost=transaction_cost,
             output_dir=str(self.output_base_path),
+            prob_percentile=prob_percentile,
             **strategy_kwargs,
         )
+
+        # Initialize strategy with full dataset (for strategies that need to analyze data upfront)
+        strategy.initialize_strategy(predictions_df)
 
         # Run backtest
         results = strategy.execute_backtest(predictions_df)
@@ -245,6 +255,8 @@ class ERCOTStrategyRunner:
     def create_dashboards(self, strategy_results: Dict[str, Dict]) -> Dict[str, str]:
         """Create dashboards for all strategies.
 
+        Creates both individual financial dashboards per strategy and a combined comparison dashboard.
+
         Args:
             strategy_results: Dictionary mapping strategy names to results
 
@@ -255,42 +267,57 @@ class ERCOTStrategyRunner:
 
         dashboard_paths = {}
 
-        # Create financial summary dashboard (all strategies overlaid)
-        if strategy_results:
-            # Use first strategy's directory as the base for the financial summary
-            first_strategy = list(strategy_results.keys())[0]
-            financial_output = (
-                self.output_base_path / first_strategy / "financial_summary.html"
-            )
-
-            create_financial_dashboard(
-                strategy_results=strategy_results,
-                output_path=str(financial_output),
-                settlement_point=self.settlement_point,
-            )
-            dashboard_paths["financial_summary"] = str(financial_output)
-            print(f"   ✅ Financial summary dashboard: {financial_output}")
-
-        # Create strategy-specific deep-dive dashboards
-        deep_dive_paths = []
+        # 1. Create individual financial dashboards for each strategy
         for strategy_name, results in strategy_results.items():
             if not results or not results["trades"]:
                 continue
 
             strategy_dir = self.output_base_path / strategy_name
 
-            # Create hours overlay dashboard directly in strategy folder
+            # Individual financial dashboard (single strategy)
+            individual_financial_output = strategy_dir / "financial_summary.html"
+            create_financial_dashboard(
+                strategy_results={strategy_name: results},  # Single strategy only
+                output_path=str(individual_financial_output),
+                settlement_point=self.settlement_point,
+            )
+            dashboard_paths[f"{strategy_name}_financial"] = str(
+                individual_financial_output
+            )
+            print(
+                f"   ✅ {strategy_name} financial dashboard: {individual_financial_output}"
+            )
+
+            # Individual hours overlay dashboard
             hours_overlay_output = strategy_dir / "hours_overlay.html"
             create_hours_overlay_dashboard(
                 strategy_results={strategy_name: results},
                 output_path=str(hours_overlay_output),
                 settlement_point=self.settlement_point,
             )
-
             dashboard_paths[f"{strategy_name}_hours_overlay"] = str(
                 hours_overlay_output
             )
-            print(f"   ✅ Strategy hours overlay: {hours_overlay_output}")
+            print(f"   ✅ {strategy_name} hours overlay: {hours_overlay_output}")
+
+        # 2. Create combined comparison dashboard (all strategies overlaid)
+        if len(strategy_results) > 1:
+            # Filter to valid strategies for comparison
+            valid_strategies = {
+                name: results
+                for name, results in strategy_results.items()
+                if results and results.get("trades")
+            }
+
+            if len(valid_strategies) > 1:
+                combined_output = self.output_base_path / "strategy_comparison.html"
+                create_financial_dashboard(
+                    strategy_results=valid_strategies,  # All strategies for comparison
+                    output_path=str(combined_output),
+                    settlement_point=self.settlement_point,
+                )
+                dashboard_paths["strategy_comparison"] = str(combined_output)
+                print(f"   ✅ Strategy comparison dashboard: {combined_output}")
 
         return dashboard_paths
 

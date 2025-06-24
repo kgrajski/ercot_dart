@@ -27,23 +27,43 @@ class StrategyValidationError(Exception):
 
 
 class BaseStrategy(ABC):
-    """Abstract base class for ERCOT trading strategies.
+    """Abstract base class for ERCOT trading strategies using per-hour independent betting.
 
-    This class provides the template method pattern for strategy execution
-    and defines the interface that all concrete strategies must implement.
+    This class implements a per-hour independent betting model where each prediction
+    generates exactly one bet with even money payouts. This approach treats each
+    hourly prediction as a standalone betting opportunity rather than a traditional
+    position-holding strategy.
 
-    Key concepts:
-    - Strategies operate on hourly predictions from classification models
-    - Each trade represents a bet on DART direction (positive/negative)
-    - Profits/losses are realized based on actual DART movements
-    - Transaction costs are applied to each trade
+    Betting Model:
+    ==============
+    - **Independence**: Each row/hour is processed independently with no state carryover
+    - **Even Money**: Win = +$1.00 profit, Lose = -$1.00 loss (before transaction costs)
+    - **Transaction Costs**: $0.10 per transaction × 2 = $0.20 total per bet
+    - **Net Payouts**: Win = +$0.80, Lose = -$1.20 (after transaction costs)
+
+    Key Concepts:
+    =============
+    - Each hourly prediction triggers one complete bet cycle (place → resolve → settle)
+    - Profits/losses are realized immediately based on actual DART movements
+    - No position holding across multiple hours - each bet is self-contained
+    - Capital management through independent bet sizing per prediction
+
+    Data Structure:
+    ===============
+    Each prediction row contains:
+    - predicted_dart_slt: Binary prediction (0=short, 1=long)
+    - actual_dart_slt: Actual outcome (0=RT≤DA, 1=RT>DA)
+    - Probability scores and confidence metrics for analysis
+
+    This model is well-suited for backtesting classification models on electricity
+    markets where each prediction represents a distinct trading opportunity.
     """
 
     def __init__(
         self,
         strategy_name: str,
+        transaction_cost: float,  # Required parameter - no default
         initial_capital: float = 10000.0,
-        transaction_cost: float = 0.5,  # Fixed cost per trade (Wang et al. style)
         output_dir: str = None,
         enable_validation: bool = True,  # Enable comprehensive validation checks
         enable_debug_logging: bool = True,  # Enable detailed debug output
@@ -52,15 +72,15 @@ class BaseStrategy(ABC):
 
         Args:
             strategy_name: Name of the strategy for identification
+            transaction_cost: Fixed cost per transaction (entry or exit) in dollars
             initial_capital: Starting capital for the strategy
-            transaction_cost: Fixed cost per trade in dollars
             output_dir: Directory for saving strategy results
             enable_validation: Whether to enable validation checks
             enable_debug_logging: Whether to enable debug logging
         """
         self.strategy_name = strategy_name
-        self.initial_capital = initial_capital
         self.transaction_cost = transaction_cost
+        self.initial_capital = initial_capital
         self.output_dir = output_dir or "."
         self.enable_validation = enable_validation
         self.enable_debug_logging = enable_debug_logging
@@ -72,13 +92,6 @@ class BaseStrategy(ABC):
 
         # Current state
         self.current_capital = initial_capital
-        self.current_position_size = 0  # Current open position size
-        self.current_position_entry_price = 0  # Normalized entry price
-        self.current_position_entry_hour = None  # Normalized entry hour
-        self.current_position_entry_time = None  # Normalized entry time
-        self.current_position_entry_prediction = (
-            None  # Store entry prediction for trade analysis
-        )
 
         # Validation and monitoring
         self.validation_errors = []  # Track validation errors
@@ -86,6 +99,11 @@ class BaseStrategy(ABC):
 
         if self.enable_validation:
             self._validate_initialization()
+
+        if self.enable_debug_logging:
+            print(f"✅ Strategy '{self.strategy_name}' initialized successfully")
+            print(f"   💰 Initial Capital: ${self.initial_capital:,.2f}")
+            print(f"   💸 Transaction Cost: ${self.transaction_cost:.2f}")
 
     def _validate_initialization(self):
         """Validate strategy initialization parameters."""
@@ -118,10 +136,18 @@ class BaseStrategy(ABC):
             )
             raise StrategyValidationError(error_msg)
 
-        if self.enable_debug_logging:
-            print(f"✅ Strategy '{self.strategy_name}' initialized successfully")
-            print(f"   💰 Initial Capital: ${self.initial_capital:,.2f}")
-            print(f"   💸 Transaction Cost: ${self.transaction_cost:.2f}")
+    def initialize_strategy(self, predictions_df: pd.DataFrame) -> None:
+        """Initialize strategy with full predictions dataset.
+
+        This method is called before backtesting starts to allow the strategy
+        to analyze the full dataset and set parameters. Base implementation
+        does nothing - strategies can override this for custom initialization.
+
+        Args:
+            predictions_df: Full predictions DataFrame
+        """
+        # Base implementation does nothing - strategies can override
+        pass
 
     def _track_method_call(self, method_name: str):
         """Track method calls for monitoring."""
@@ -148,10 +174,10 @@ class BaseStrategy(ABC):
                 f"Missing required keys: {missing_keys}. Got keys: {list(signal.keys())}"
             )
 
-        if signal["direction"] not in ["long", "short"]:
+        if signal["direction"] not in ["long", "short", "no_trade"]:
             raise StrategyValidationError(
                 f"🚨 SIGNAL VALIDATION FAILED {method_context}: "
-                f"Direction must be 'long' or 'short', got '{signal['direction']}'"
+                f"Direction must be 'long', 'short', or 'no_trade', got '{signal['direction']}'"
             )
 
         confidence = signal["confidence"]
@@ -231,34 +257,77 @@ class BaseStrategy(ABC):
 
     @abstractmethod
     def generate_signal(self, prediction_row: pd.Series) -> Dict:
-        """Generate trading signal from prediction data.
+        """Generate trading signal for independent bet from prediction data.
+
+        This method determines the bet direction (long/short) and confidence level
+        for a single independent bet based on the prediction row. Each call generates
+        exactly one betting decision with no dependency on previous bets.
+
+        Independent Betting Context:
+        ============================
+        - Called once per prediction row to generate one bet
+        - No state carried from previous predictions
+        - Signal determines bet direction: long (RT > DA) or short (RT ≤ DA)
+        - Confidence can be used for bet sizing or filtering
 
         Args:
-            prediction_row: Single row from predictions DataFrame
+            prediction_row: Single row from predictions DataFrame containing:
+                - predicted_dart_slt: Binary prediction (0/1)
+                - predicted_prob_class_0/1: XGBoost probability scores
+                - prediction_confidence: Model confidence
+                - Other prediction metadata
 
         Returns:
-            Dictionary with signal information:
-            - direction: "long" or "short"
-            - confidence: 0.0 to 1.0
-            - size_multiplier: Optional position size multiplier
+            Dictionary with signal information for this independent bet:
+            - direction: "long" (bet RT > DA) or "short" (bet RT ≤ DA)
+            - confidence: 0.0 to 1.0 (betting confidence level)
+            - size_multiplier: Optional position size multiplier for this bet
         """
         pass
 
     @abstractmethod
     def calculate_position_size(self, signal: Dict, available_capital: float) -> float:
-        """Calculate position size for the trade.
+        """Calculate bet size for single independent bet.
+
+        This method determines how much capital to wager on this specific bet.
+        In the independent betting model, each bet is sized independently based
+        on the signal and available capital, with no consideration of other bets.
+
+        Independent Betting Context:
+        ============================
+        - Called once per bet to determine stake amount
+        - No position sizing across multiple bets
+        - Must account for transaction costs ($0.10 × 2 = $0.20 per bet)
+        - Available capital is current capital after previous bets
+
+        Even Money Betting:
+        ===================
+        - Bet size represents the stake amount (typically $1.00)
+        - Win: Get back 2x bet size (stake + profit)
+        - Lose: Forfeit entire bet size
+        - Net after transaction costs: Win = +$0.80, Lose = -$1.20
 
         Args:
-            signal: Signal dictionary from generate_signal()
-            available_capital: Available capital for trading
+            signal: Signal dictionary from generate_signal() containing:
+                - direction: "long" or "short"
+                - confidence: 0.0 to 1.0
+                - size_multiplier: Optional multiplier
+            available_capital: Current capital available for this bet
 
         Returns:
-            Position size in dollars
+            Bet size in dollars (positive for long, negative for short)
+            Must be ≤ available_capital to account for transaction costs
         """
         pass
 
     def execute_backtest(self, predictions_df: pd.DataFrame) -> Dict:
-        """Execute backtest with operational trading model.
+        """Execute backtest with per-hour independent betting model.
+
+        Each row represents one complete bet cycle:
+        - Place bet based on predicted_dart_slt
+        - Resolve bet using actual_dart_slt
+        - Calculate P&L with even money payouts
+        - Record trade and update capital
 
         Enhanced to handle probability scores and raw DART values:
         - predicted_dart_slt: Binary prediction (0/1) - main signal
@@ -282,56 +351,49 @@ class BaseStrategy(ABC):
         trades = []
         processing_errors = []
 
-        # Process each prediction in chronological order
+        # Process each prediction as independent bet
         for i, row in predictions_df.iterrows():
             try:
-                is_last_prediction = i == len(predictions_df) - 1
+                # Generate signal for this bet
+                signal = self._safe_method_call(
+                    self.generate_signal, "generate_signal", row
+                )
+                self._validate_signal(signal, f"at row {i}")
 
-                # Close existing position if any
-                if self.current_position_size != 0:
-                    trade = self._close_position(row, trades)
+                # Calculate bet size
+                bet_size = self._safe_method_call(
+                    self.calculate_position_size,
+                    "calculate_position_size",
+                    signal,
+                    self.current_capital,
+                )
+                self._validate_position_size(
+                    bet_size, self.current_capital, f"at row {i}"
+                )
+
+                # Process bet if signal generated and sufficient capital (skip no_trade signals)
+                if (
+                    signal.get("direction") != "no_trade"
+                    and bet_size != 0
+                    and abs(bet_size) <= self.current_capital
+                ):
+                    trade = self._process_independent_bet(row, signal, bet_size)
                     if trade:
                         trades.append(trade)
 
-                # Open new position (unless this is the last prediction)
-                if not is_last_prediction:
-                    # Generate signal with validation
-                    signal = self._safe_method_call(
-                        self.generate_signal, "generate_signal", row
-                    )
-                    self._validate_signal(signal, f"at row {i}")
-
-                    # Calculate position size with validation
-                    position_size = self._safe_method_call(
-                        self.calculate_position_size,
-                        "calculate_position_size",
-                        signal,
-                        self.current_capital,
-                    )
-                    self._validate_position_size(
-                        position_size, self.current_capital, f"at row {i}"
-                    )
-
-                    if (
-                        position_size != 0
-                        and abs(position_size) <= self.current_capital
-                    ):
-                        # Record position entry
-                        self.current_position_size = position_size
-                        self.current_position_entry_price = 1.0  # Normalized entry
-                        self.current_position_entry_hour = row["end_hour"]
-                        self.current_position_entry_time = row["utc_ts"]
-                        self.current_position_entry_prediction = row.get(
-                            "predicted_dart_slt", 0
-                        )  # Store binary prediction
-
-                        # Update capital
-                        self.current_capital -= abs(position_size)  # Transaction cost
-
                         if self.enable_debug_logging:
+                            direction = "long" if bet_size > 0 else "short"
+                            result_emoji = "✅" if trade["pnl"] > 0 else "❌"
+                            direction_emoji = "📈" if direction == "long" else "📉"
                             print(
-                                f"  📈 Opened position: ${position_size:+.0f} @ hour {row['end_hour']} ({row['utc_ts']})"
+                                f"  {result_emoji} {direction_emoji} {direction} bet: ${trade['pnl']:+.2f} (actual: {trade['actual_dart_slt']}) @ hour {row['end_hour']}"
                             )
+                elif (
+                    signal.get("direction") == "no_trade" and self.enable_debug_logging
+                ):
+                    print(
+                        f"  ⏸️  No trade @ hour {row['end_hour']}: {signal.get('reason', 'no reason provided')}"
+                    )
 
             except Exception as e:
                 error_info = {
@@ -350,7 +412,7 @@ class BaseStrategy(ABC):
                 # Continue processing other rows
                 continue
 
-            # Record portfolio value at this point in time (after each prediction)
+            # Record portfolio value after each bet
             self.portfolio_values.append(
                 {
                     "utc_ts": row["utc_ts"],
@@ -358,7 +420,7 @@ class BaseStrategy(ABC):
                     "portfolio_value": self.current_capital,
                     "week_num": row.get("week_num"),
                     "week_description": row.get("week_description"),
-                    "has_position": self.current_position_size != 0,
+                    "has_position": False,  # No persistent positions in independent betting
                 }
             )
 
@@ -399,8 +461,7 @@ class BaseStrategy(ABC):
         return {
             "trades": trades,
             "performance_metrics": performance_metrics,
-            "final_portfolio_value": self.current_capital
-            + sum(trade.get("pnl", 0) for trade in trades),
+            "final_portfolio_value": self.current_capital,
             "processing_errors": processing_errors,
             "validation_errors": self.validation_errors,
             "method_call_counts": self.method_call_counts,
@@ -461,11 +522,6 @@ class BaseStrategy(ABC):
     def _reset_state(self):
         """Reset strategy state for new backtest."""
         self.current_capital = self.initial_capital
-        self.current_position_size = 0
-        self.current_position_entry_price = 0
-        self.current_position_entry_hour = None
-        self.current_position_entry_time = None
-        self.current_position_entry_prediction = None
         self.trades = []
         self.portfolio_values = []
         self.performance_metrics = {}
@@ -477,7 +533,7 @@ class BaseStrategy(ABC):
         if self.enable_debug_logging:
             print(f"🔄 Strategy state reset for {self.strategy_name}")
             print(f"   💰 Capital: ${self.current_capital:,.2f}")
-            print(f"   📊 Position: {self.current_position_size}")
+            print(f"   🎰 Betting model: Independent per-hour bets")
 
         # Validate state after reset
         if self.enable_validation:
@@ -485,227 +541,148 @@ class BaseStrategy(ABC):
                 self.current_capital == self.initial_capital
             ), f"Capital reset failed: {self.current_capital} != {self.initial_capital}"
             assert (
-                self.current_position_size == 0
-            ), f"Position reset failed: {self.current_position_size} != 0"
-            assert (
                 len(self.trades) == 0
             ), f"Trades reset failed: {len(self.trades)} != 0"
 
-    def _process_prediction(
-        self, row: pd.Series, idx: int, is_last_prediction: bool = False
-    ):
-        """Process a single prediction following operational trading model.
+    def _process_independent_bet(
+        self, row: pd.Series, signal: Dict, bet_size: float
+    ) -> Dict:
+        """Process a single independent bet cycle.
 
-        Operational flow:
-        1. Close any existing position using actual DART results
-        2. Open new position based on current prediction (unless last prediction)
-        3. Record portfolio state
-
-        Args:
-            row: Current prediction row
-            idx: Row index for tracking
-            is_last_prediction: True if this is the final prediction (don't open new position)
-        """
-        # Step 1: Close existing position if any (settle previous trade)
-        if self.current_position_size != 0:
-            trade = self._close_position(row, self.trades)
-            if trade:
-                self.trades.append(trade)
-
-        # Step 2: Open new position based on current prediction (unless last)
-        if not is_last_prediction:
-            # Generate trading signal
-            signal = self.generate_signal(row)
-
-            # Calculate position size
-            position_size = self.calculate_position_size(signal, self.current_capital)
-
-            # Open new position if signal indicates trade and we have capital
-            if (
-                position_size > 0
-                and signal.get("direction")
-                and self.current_capital > self.transaction_cost
-            ):
-                self.current_position_size = position_size
-                self.current_position_entry_price = 1.0  # Normalized entry
-                self.current_position_entry_hour = row["end_hour"]
-                self.current_position_entry_time = row["utc_ts"]
-                self.current_position_entry_prediction = row.get(
-                    "predicted_dart_slt", 0
-                )  # Store binary prediction
-
-                # Update capital
-                self.current_capital -= abs(position_size)  # Transaction cost
-
-                print(
-                    f"  📈 Opened position: ${position_size:+.0f} @ hour {row['end_hour']} ({row['utc_ts']})"
-                )
-
-        # Step 3: Record portfolio value at this point in time
-        self.portfolio_values.append(
-            {
-                "utc_ts": row["utc_ts"],
-                "end_hour": row["end_hour"],
-                "portfolio_value": self.current_capital,
-                "week_num": row.get("week_num"),
-                "week_description": row.get("week_description"),
-                "has_position": self.current_position_size != 0,
-            }
-        )
-
-    def _close_position(self, row: pd.Series, trades: List[Dict]) -> Dict:
-        """Close the current position and calculate P&L.
+        Each bet is completely independent:
+        1. Place bet based on prediction (deduct stake + transaction cost)
+        2. Resolve bet using actual outcome (even money payout)
+        3. Update capital and return trade record
 
         Args:
-            row: Current prediction row containing actual DART results
-            trades: List of completed trades (for context)
+            row: Prediction row containing prediction and actual outcome
+            signal: Trading signal from generate_signal()
+            bet_size: Bet size from calculate_position_size()
 
         Returns:
-            Dict: Trade record if position was closed, None otherwise
+            Dict: Complete trade record for this bet
         """
-        if self.current_position_size == 0:
-            return None
-
-        # Get actual DART movement for P&L calculation
+        # Get prediction and actual outcome
         actual_dart = row["actual_dart_slt"]  # 0 or 1 from classification
+        predicted_dart = row.get("predicted_dart_slt", 0)
 
-        # Determine P&L based on position direction and actual outcome
+        # Determine bet direction from signal/bet_size
+        direction = "long" if bet_size > 0 else "short"
+
+        # Calculate P&L using even money betting rules
         # Long wins when actual_dart = 1 (RT > DA), Short wins when actual_dart = 0 (RT ≤ DA)
-        if self.current_position_size > 0:  # Long position
-            pnl = (
-                abs(self.current_position_size)
-                if actual_dart == 1
-                else -abs(self.current_position_size)
-            )
-        else:  # Short position
-            pnl = (
-                abs(self.current_position_size)
-                if actual_dart == 0
-                else -abs(self.current_position_size)
-            )
+        if bet_size > 0:  # Long bet
+            pnl = abs(bet_size) if actual_dart == 1 else -abs(bet_size)
+        else:  # Short bet
+            pnl = abs(bet_size) if actual_dart == 0 else -abs(bet_size)
 
-        # Apply transaction cost on position close
-        pnl -= self.transaction_cost
+        # Apply transaction cost (entry + exit transactions)
+        pnl -= 2 * self.transaction_cost
 
-        # Update capital with realized P&L
+        # Update capital with net P&L
         self.current_capital += pnl
 
-        # Get position direction for recording
-        direction = "long" if self.current_position_size > 0 else "short"
+        # Determine if prediction was correct
+        correct_prediction = (
+            bet_size > 0 and actual_dart == 1
+        ) or (  # Long bet, RT > DA
+            bet_size < 0 and actual_dart == 0
+        )  # Short bet, RT ≤ DA
 
-        # Create trade record
+        # Create complete trade record
         trade = {
-            "entry_time": self.current_position_entry_time,
-            "exit_time": row["utc_ts"],
-            "entry_hour": self.current_position_entry_hour,
-            "exit_hour": row["end_hour"],
+            "entry_time": row["utc_ts"],
+            "exit_time": row["utc_ts"],  # Same time for independent bets
+            "entry_hour": row["end_hour"],
+            "exit_hour": row["end_hour"],  # Same hour for independent bets
             "direction": direction,
-            "position_size": abs(self.current_position_size),
+            "position_size": abs(bet_size),
             "actual_dart_slt": actual_dart,
             "pnl": pnl,
             "week_num": row.get("week_num"),
             "capital_after": self.current_capital,
-            # Additional analysis fields
-            "correct_prediction": (self.current_position_size > 0 and actual_dart == 1)
-            or (self.current_position_size < 0 and actual_dart == 0),
-            "trade_duration_hours": self._calculate_trade_duration(
-                self.current_position_entry_time, row["utc_ts"]
-            ),
-            "entry_prediction": self.current_position_entry_prediction,
+            "correct_prediction": correct_prediction,
+            "trade_duration_hours": 0.0,  # Independent bets have no duration
+            "entry_prediction": predicted_dart,
+            # Additional fields for analysis
+            "predicted_prob_class_0": row.get("predicted_prob_class_0"),
+            "predicted_prob_class_1": row.get("predicted_prob_class_1"),
+            "prediction_confidence": row.get("prediction_confidence"),
+            "actual_dart_slt_raw": row.get("actual_dart_slt_raw"),
         }
-
-        # Debug output
-        direction_emoji = "📈" if direction == "long" else "📉"
-        result_emoji = "✅" if pnl > 0 else "❌"
-        print(
-            f"  {result_emoji} {direction_emoji} Closed {direction}: ${pnl:+.2f} (actual: {actual_dart}) @ hour {row['end_hour']}"
-        )
-
-        # Clear position
-        self.current_position_size = 0
-        self.current_position_entry_price = 0
-        self.current_position_entry_hour = None
-        self.current_position_entry_time = None
-        self.current_position_entry_prediction = None
 
         return trade
 
-    def _calculate_trade_duration(self, entry_time, exit_time) -> float:
-        """Calculate trade duration in hours."""
-        try:
-            if isinstance(entry_time, str):
-                entry_time = pd.to_datetime(entry_time)
-            if isinstance(exit_time, str):
-                exit_time = pd.to_datetime(exit_time)
-            return (exit_time - entry_time).total_seconds() / 3600.0
-        except:
-            return 0.0
-
     def _calculate_performance_metrics(self) -> Dict:
-        """Calculate strategy performance metrics.
+        """Calculate strategy performance metrics for independent betting model.
 
-        This method computes all financial metrics displayed in the dashboard's financial summary.
-        The metrics follow standard quantitative finance conventions adapted for electricity trading.
+        This method computes financial metrics for the per-hour independent betting
+        strategy with even money payouts. All metrics are adapted for the unique
+        characteristics of independent betting rather than traditional position holding.
+
+        Independent Betting Model:
+        ==========================
+        - Each prediction generates exactly one independent bet
+        - No position holding - each bet resolves immediately
+        - Even money payouts: Win = +$1.00, Lose = -$1.00 (before costs)
+        - Transaction cost: $0.10 per transaction × 2 = $0.20 per bet
+        - Net payouts: Win = +$0.80, Lose = -$1.20
 
         Calculation Details:
         ====================
 
         1. **Total Return (%)**:
            - Formula: (Total P&L / Initial Capital) × 100
-           - Represents the percentage return on invested capital
-           - Example: $262 profit on $10,000 = +2.62%
+           - Represents cumulative return from all independent bets
+           - Example: $168 profit on $10,000 = +1.68%
 
         2. **Win Rate (%)**:
-           - Formula: (Number of Profitable Trades / Total Trades) × 100
-           - Percentage of trades that generated positive P&L
-           - Example: 158 winning trades out of 289 total = 54.7%
+           - Formula: (Number of Profitable Bets / Total Bets) × 100
+           - Percentage of independent bets that generated positive P&L
+           - Critical metric: Need >60% win rate to overcome transaction costs
+           - Example: 200 winning bets out of 336 total = 59.5%
 
         3. **Total Trades**:
-           - Simple count of completed round-trip trades
-           - Each trade involves: open position → daily settlement → close position
+           - Count of independent bets placed (one per prediction row)
+           - Each "trade" is one complete bet cycle: place → resolve → settle
 
         4. **Sharpe Ratio**:
            - Formula: (Mean Portfolio Return / Std Dev Portfolio Return) × √(365 × 24)
-           - Annualized risk-adjusted return metric
-           - Uses portfolio value percentage changes, annualized for electricity markets
-           - ERCOT operates 24/7, 365 days per year (not 252 trading days like financial markets)
-           - Higher values indicate better risk-adjusted performance
+           - Annualized risk-adjusted return for independent betting
+           - Based on portfolio value changes after each bet
+           - ERCOT operates 24/7, so annualized using 365 × 24 periods
 
         5. **Max Drawdown (%)**:
-           - Formula: Min((Portfolio Value - Running Maximum) / Running Maximum) × 100
-           - Largest peak-to-trough decline in portfolio value
-           - Measures worst-case downside risk
-           - Example: -2.62% means portfolio fell 2.62% from its highest point
+           - Largest cumulative loss from peak portfolio value
+           - Important for independent betting due to transaction cost drag
+           - Shows worst-case capital erosion during losing streaks
 
         6. **Final Capital**:
-           - End-of-backtest portfolio value in dollars
-           - Initial Capital + Total P&L - Transaction Costs
+           - End portfolio value: Initial Capital + Total P&L from all bets
 
-        P&L Calculation Logic:
-        =====================
-        Each trade's P&L is calculated as follows:
+        P&L Calculation (Even Money Betting):
+        ====================================
+        For each independent bet:
 
-        - **Long Position**: Bet that Real-Time price > Day-Ahead price
+        - **Long Bet** (predict RT > DA):
           - Win: +$1.00 when actual_dart_slt = 1 (RT > DA)
           - Lose: -$1.00 when actual_dart_slt = 0 (RT ≤ DA)
 
-        - **Short Position**: Bet that Real-Time price ≤ Day-Ahead price
+        - **Short Bet** (predict RT ≤ DA):
           - Win: +$1.00 when actual_dart_slt = 0 (RT ≤ DA)
           - Lose: -$1.00 when actual_dart_slt = 1 (RT > DA)
 
-        - **Transaction Costs**: $0.50 deducted on both entry and exit
-          - Total per round-trip trade: $1.00
-          - Net P&L = Base P&L - Transaction Costs
+        - **Transaction Cost**: $0.10 per transaction × 2 = $0.20 per bet
+        - **Net P&L**: Base P&L - $0.20 transaction cost
 
-        Trading Model:
-        ==============
-        - Each hourly prediction opens a new $1 position
-        - Previous position automatically closes at settlement
-        - No position sizing or risk management (naive strategy)
-        - Capital requirement: sufficient funds for next trade + transaction costs
+        Break-Even Analysis:
+        ===================
+        - Fair coin (50% win rate): Expected loss due to transaction costs
+        - Break-even: ~60% win rate needed (0.60 × $0.80 + 0.40 × (-$1.20) = 0)
+        - Model edge required to overcome 20 cent transaction cost per bet
 
         Returns:
-            Dict containing all calculated performance metrics
+            Dict containing all calculated performance metrics for independent betting
         """
         if not self.trades:
             return {}
@@ -754,7 +731,7 @@ class BaseStrategy(ABC):
             "avg_trade_pnl": trades_df["pnl"].mean() if total_trades > 0 else 0,
             "total_transaction_costs": total_trades
             * 2
-            * self.transaction_cost,  # 2x for entry/exit
+            * self.transaction_cost,  # Round-trip cost per independent bet
         }
 
     def save_results(self, results: Dict):

@@ -2,6 +2,9 @@
 
 This module creates an overview dashboard showing financial performance
 across all hours and strategies, following the visualization patterns from exp2.
+
+ARCHITECTURE: This module is now DISPLAY-ONLY. All metrics calculations are 
+handled by the ERCOTTradeAnalytics class (single source of truth).
 """
 
 from typing import Dict
@@ -10,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from src.backtesting.ercot.analytics.trade_analytics import create_analytics_engine
 from src.features.ercot.visualization import COLOR_SEQUENCE
 from src.features.ercot.visualization import PROFESSIONAL_COLORS
 from src.features.ercot.visualization import apply_professional_axis_styling
@@ -21,6 +25,8 @@ def create_financial_dashboard(
 ):
     """Create financial summary dashboard showing all hours overlaid.
 
+    REFACTORED: Now uses centralized analytics engine for all calculations.
+
     Args:
         strategy_results: Dictionary of strategy results
         output_path: Path to save HTML dashboard
@@ -28,12 +34,36 @@ def create_financial_dashboard(
     """
     print(f"📊 Creating financial summary dashboard...")
 
+    # Filter out None results before processing
+    valid_strategy_results = {
+        name: results
+        for name, results in strategy_results.items()
+        if results is not None and results.get("trades")
+    }
+
+    if not valid_strategy_results:
+        print("   ⚠️  No valid strategy results to display in dashboard")
+        # Create empty dashboard file to satisfy caller expectations
+        with open(output_path, "w") as f:
+            f.write(
+                "<html><body><h1>No Valid Strategy Results</h1><p>All strategies failed or had no trades.</p></body></html>"
+            )
+        return str(output_path)
+
+    # SINGLE SOURCE OF TRUTH: Create analytics engine
+    analytics = create_analytics_engine(valid_strategy_results)
+
+    # Get strategy name for subtitle
+    strategy_name = (
+        list(valid_strategy_results.keys())[0] if valid_strategy_results else "Unknown"
+    )
+
     # Create 2x2 subplot layout
     fig = make_subplots(
         rows=2,
         cols=2,
         subplot_titles=[
-            "Cumulative P&L by Hour",
+            "Contribution to Cumulative Returns by Hour",
             "Win Rate by Hour",
             "Sharpe Ratio by Hour",
             "Total Trades by Hour",
@@ -46,128 +76,125 @@ def create_financial_dashboard(
         horizontal_spacing=0.08,
     )
 
-    # Color assignment
+    # Color assignment for strategies (using professional color sequence)
+    strategy_names = list(valid_strategy_results.keys())
     strategy_colors = {}
-    for i, strategy_name in enumerate(strategy_results.keys()):
+    for i, strategy_name in enumerate(strategy_names):
+        # Use the professional color sequence, cycling through if needed
         strategy_colors[strategy_name] = COLOR_SEQUENCE[i % len(COLOR_SEQUENCE)]
 
     # Collect summary data for CSV export
     summary_data = []
 
+    # Collect strategy performance for subtitle
+    strategy_performance_lines = []
+
     # Process each strategy
-    for strategy_name, results in strategy_results.items():
+    for strategy_name_loop, results in valid_strategy_results.items():
         if not results or not results["trades"]:
             continue
 
-        # Convert trades to DataFrame
-        trades_df = pd.DataFrame(results["trades"])
+        # GET HOURLY METRICS FROM SINGLE SOURCE OF TRUTH
+        hourly_stats = analytics.get_hourly_metrics(strategy_name_loop)
 
-        # Group by hour for aggregation
-        hourly_stats = (
-            trades_df.groupby("entry_hour")
-            .agg(
-                {
-                    "pnl": ["sum", "count", lambda x: (x > 0).sum()],
-                }
-            )
-            .round(2)
-        )
-
-        # Flatten column names
-        hourly_stats.columns = ["total_pnl", "total_trades", "winning_trades"]
-        hourly_stats["win_rate"] = (
-            hourly_stats["winning_trades"] / hourly_stats["total_trades"] * 100
-        ).fillna(0)
-
-        # Calculate Sharpe ratio approximation per hour
-        hourly_stats[
-            "sharpe_approx"
-        ] = 0.0  # Use float instead of int to avoid dtype issues
-        for hour in hourly_stats.index:
-            hour_trades = trades_df[trades_df["entry_hour"] == hour]["pnl"]
-            if len(hour_trades) > 1 and hour_trades.std() > 0:
-                hourly_stats.loc[hour, "sharpe_approx"] = (
-                    hour_trades.mean() / hour_trades.std()
-                )
+        if hourly_stats.empty:
+            continue
 
         # Add strategy column for CSV export
         hourly_stats_export = hourly_stats.copy()
-        hourly_stats_export["strategy"] = strategy_name
-        hourly_stats_export["hour"] = hourly_stats_export.index
+        hourly_stats_export["strategy"] = strategy_name_loop
         summary_data.append(hourly_stats_export)
 
-        color = strategy_colors[strategy_name]
+        # Get strategy color and performance metrics
+        strategy_color = strategy_colors[strategy_name_loop]
+        performance_metrics = results.get("performance_metrics", {})
+        total_return_pct = performance_metrics.get("total_return_pct", 0)
+        final_capital = performance_metrics.get("final_capital", 0)
 
-        # Plot 1: Cumulative P&L by Hour
-        fig.add_trace(
-            go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats["total_pnl"],
-                mode="lines+markers",
-                name=f"{strategy_name} P&L",
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=True,
-                hovertemplate="<b>%{fullData.name}</b><br>Hour: %{x}<br>P&L: $%{y:.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
+        # Add to subtitle performance summary
+        strategy_performance_lines.append(
+            f"{strategy_name_loop.upper()}: {total_return_pct:+.2f}% return (${final_capital:,.0f} final capital)"
         )
 
-        # Plot 2: Win Rate by Hour
-        fig.add_trace(
-            go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats["win_rate"],
-                mode="lines+markers",
-                name=f"{strategy_name} Win Rate",
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=False,
-                hovertemplate="<b>%{fullData.name}</b><br>Hour: %{x}<br>Win Rate: %{y:.1f}%<extra></extra>",
-            ),
-            row=1,
-            col=2,
-        )
-
-        # Plot 3: Sharpe Ratio by Hour
-        fig.add_trace(
-            go.Scatter(
-                x=hourly_stats.index,
-                y=hourly_stats["sharpe_approx"],
-                mode="lines+markers",
-                name=f"{strategy_name} Sharpe",
-                line=dict(color=color, width=2),
-                marker=dict(size=6),
-                showlegend=False,
-                hovertemplate="<b>%{fullData.name}</b><br>Hour: %{x}<br>Sharpe: %{y:.3f}<extra></extra>",
-            ),
-            row=2,
-            col=1,
-        )
-
-        # Plot 4: Total Trades by Hour
+        # Plot 1: Contribution to Cumulative Returns by Hour (no legend)
         fig.add_trace(
             go.Bar(
-                x=hourly_stats.index,
-                y=hourly_stats["total_trades"],
-                name=f"{strategy_name} Trades",
-                marker_color=color,
+                x=hourly_stats["hour"],
+                y=hourly_stats["total_pnl"],
+                name=f"{strategy_name_loop.upper()}",
+                marker_color=strategy_color,
+                opacity=0.7,
+                showlegend=False,  # No legend - performance shown in subtitle
+                hovertemplate="<b>Hour %{x}</b><br>P&L Contribution: $%{y:.2f}<extra></extra>",
+                legendgroup=strategy_name_loop,  # Group all traces for this strategy
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Plot 2: Win Rate by Hour (same color, no legend)
+        fig.add_trace(
+            go.Bar(
+                x=hourly_stats["hour"],
+                y=hourly_stats["win_rate_pct"],
+                name=f"{strategy_name_loop} Win Rate",
+                marker_color=strategy_color,
                 opacity=0.7,
                 showlegend=False,
-                hovertemplate="<b>%{fullData.name}</b><br>Hour: %{x}<br>Trades: %{y}<extra></extra>",
+                hovertemplate="<b>Hour %{x}</b><br>Win Rate: %{y:.1f}%<extra></extra>",
+                legendgroup=strategy_name_loop,
+            ),
+            row=1,
+            col=2,
+        )
+
+        # Plot 3: Sharpe Ratio by Hour (same color, no legend)
+        fig.add_trace(
+            go.Bar(
+                x=hourly_stats["hour"],
+                y=hourly_stats["sharpe_ratio"],
+                name=f"{strategy_name_loop} Sharpe",
+                marker_color=strategy_color,
+                opacity=0.7,
+                showlegend=False,
+                hovertemplate="<b>Hour %{x}</b><br>Sharpe Ratio: %{y:.3f}<extra></extra>",
+                legendgroup=strategy_name_loop,
+            ),
+            row=2,
+            col=1,
+        )
+
+        # Plot 4: Total Trades by Hour (same color, no legend)
+        fig.add_trace(
+            go.Bar(
+                x=hourly_stats["hour"],
+                y=hourly_stats["total_trades"],
+                name=f"{strategy_name_loop} Trades",
+                marker_color=strategy_color,
+                opacity=0.7,
+                showlegend=False,
+                hovertemplate="<b>Hour %{x}</b><br>Total Trades: %{y}<extra></extra>",
+                legendgroup=strategy_name_loop,
             ),
             row=2,
             col=2,
         )
+
+    # Create title with performance subtitle (horizontal format for scalability)
+    main_title = f"ERCOT Trading Strategy Performance - {settlement_point}"
+    subtitle = " • ".join(
+        strategy_performance_lines
+    )  # Horizontal layout with bullet separators
+    full_title = f"{main_title}<br><span style='font-size: 16px;'><b>{subtitle}</b></span>"  # Bigger, bold font for key results
 
     # Update layout with professional styling
     layout = get_professional_layout(
-        title=f"ERCOT Trading Strategy Performance - {settlement_point}",
+        title=full_title,
         height=800,
-        showlegend=True,
-        legend_position="upper_right",
+        showlegend=False,  # No legend needed - performance shown in title
     )
+
+    # No legend configuration needed since performance is in subtitle
 
     fig.update_layout(**layout)
     apply_professional_axis_styling(fig, rows=2, cols=2)
@@ -183,35 +210,7 @@ def create_financial_dashboard(
     fig.update_yaxes(title_text="Sharpe Ratio", row=2, col=1)
     fig.update_yaxes(title_text="Number of Trades", row=2, col=2)
 
-    # Add annotations with key statistics
-    if strategy_results:
-        first_strategy = list(strategy_results.values())[0]
-        metrics = first_strategy["performance_metrics"]
-
-        annotations_text = (
-            f"<b>Strategy Performance Summary</b><br>"
-            f"Total Return: {metrics.get('total_return_pct', 0):+.2f}%<br>"
-            f"Win Rate: {metrics.get('win_rate_pct', 0):.1f}%<br>"
-            f"Sharpe: {metrics.get('sharpe_ratio', 0):.3f}<br>"
-            f"Max DD: {metrics.get('max_drawdown_pct', 0):.2f}%"
-        )
-
-        fig.add_annotation(
-            text=annotations_text,
-            xref="paper",
-            yref="paper",
-            x=0.02,
-            y=0.98,
-            xanchor="left",
-            yanchor="top",
-            showarrow=False,
-            bgcolor="rgba(255,255,255,0.8)",
-            bordercolor=PROFESSIONAL_COLORS["text"],
-            borderwidth=1,
-            font=dict(size=10, color=PROFESSIONAL_COLORS["text"]),
-        )
-
-    # Save HTML dashboard with project-standard config
+    # Save HTML dashboard
     fig.write_html(
         output_path,
         include_plotlyjs=True,
@@ -233,12 +232,14 @@ def create_financial_dashboard(
             f"   ⚠️  Could not save PNG (install kaleido with: pip install kaleido): {e}"
         )
 
-    # Save corresponding CSV file
+    # Save CSV version of summary data
     if summary_data:
-        combined_summary = pd.concat(summary_data, ignore_index=True)
+        csv_data = pd.concat(summary_data, ignore_index=True)
         csv_path = output_path.replace(".html", ".csv")
-        combined_summary.to_csv(csv_path, index=False)
+        csv_data.to_csv(csv_path, index=False)
         print(f"   ✅ Financial summary CSV saved: {csv_path}")
+
+    return str(output_path)
 
 
 def create_performance_summary_table(strategy_results: Dict) -> pd.DataFrame:

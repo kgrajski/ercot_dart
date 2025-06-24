@@ -1,0 +1,51 @@
+# Data Experiment 2: ERCOT Classification Dataset
+metadata:
+  created_date: "2024-12-19"
+  author: "kag" 
+  status: "completed"
+  last_updated: "2025-01-02"
+
+description: |
+  Classification-focused ERCOT dataset for DART price prediction.
+  Creates binary classification targets from price differences for trading strategies.
+
+key_achievements:
+  - ✅ Clean classification dataset with binary targets
+  - ✅ Enhanced temporal features (cyclical encoding, holidays)
+  - ✅ Texas-specific holiday calendar
+  - ✅ Progressive validation framework
+  - ✅ XGBoost classification with cross-hour analysis
+  - ✅ Professional visualization system
+
+data_sources:
+  primary:
+    - processed_dam_spp_clean (settlement point prices)
+    - processed_dam_system_lambda_clean (system lambda)
+    - processed_load_forecast_clean (demand forecasts)
+    - processed_wind_power_gen_clean (wind generation)
+    - processed_solar_power_gen_clean (solar generation)
+    - processed_rt_spp_transformed (real-time prices with statistics)
+
+features:
+  target: "dart_slt_class"  # Binary classification (price up/down)
+  temporal: 
+    - Cyclical encoding (hour, day, week, month, year)
+    - Holiday features (Texas-specific calendar)
+    - Lag features (24, 25, 26, 27, 168 hours)
+    - Rolling statistics (7d, 14d, 21d windows)
+  market:
+    - Load forecast transformations
+    - Wind/solar generation features
+    - DART price historical patterns
+
+workflow:
+  dataset: "03-kag-exp2-ercot-study-dataset.py" 
+  modeling: "04-kag-exp2-ercot-modeling.py"
+
+key_learnings:
+  - Classification approach works better for trading than regression
+  - Progressive validation essential for time series
+  - Hour-specific patterns vary significantly
+  - Feature engineering critical for performance
+
+output_location: "data/studies/exp2/2025-06-04/" 

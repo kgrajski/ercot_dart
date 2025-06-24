@@ -25,10 +25,11 @@ class NaiveStrategy(BaseStrategy):
 
     def __init__(
         self,
+        transaction_cost: float,  # Required parameter - must be provided by caller
         strategy_name: str = "naive",
         initial_capital: float = 10000.0,
-        transaction_cost: float = 0.5,
         output_dir: str = None,
+        **kwargs,  # Accept additional parameters for compatibility
     ):
         """Initialize naive strategy.
 
@@ -37,11 +38,12 @@ class NaiveStrategy(BaseStrategy):
             initial_capital: Starting capital for the strategy
             transaction_cost: Fixed cost per trade in dollars
             output_dir: Directory for saving strategy results
+            **kwargs: Additional parameters (ignored by naive strategy)
         """
         super().__init__(
             strategy_name=strategy_name,
-            initial_capital=initial_capital,
             transaction_cost=transaction_cost,
+            initial_capital=initial_capital,
             output_dir=output_dir,
         )
 
