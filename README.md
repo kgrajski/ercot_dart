@@ -1,4 +1,4 @@
-# ERCOT DART Price Prediction Workbench
+# ERCOT DART Price Prediction MVP Research-Grade Workbench
 
 - [Project Overview](#project-overview)
 - [Project Objectives](#project-objectives)
