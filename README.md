@@ -421,7 +421,7 @@ What I would do differently
     - With a Co-Pilot it is astounding how quickly one can generate and customize quite complex plots!
   - Many studies focus on the end-result - which nearly inevitably end with "hot" results.  Here, I wanted to share the step-by-step journey to include the false alarms amongst the hints of insight.
 - Architect for future scaling.
-  - ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect the workbench to operate on a single settlement point and use an external method to scale to the full range.
+  - ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect the workbench to operate on a single settlement point and use an external method to scale to the full collection.
 
 What I might do next
 - Modeling
