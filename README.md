@@ -6,7 +6,7 @@
 - [Independent Variables and EDA](#independent-variables-and-eda)
 - [Modeling Experiments](#modeling-experiments)
 - [Backtesting Experiments](#backtesting-experiments)
-- [Reflections](#next-steps)
+- [Reflections](#reflections)
 
 ## Project Overview
 
