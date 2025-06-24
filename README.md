@@ -6,7 +6,7 @@
 - [Independent Variables and EDA](#independent-variables-and-eda)
 - [Modeling Experiments](#modeling-experiments)
 - [Backtesting Experiments](#backtesting-experiments)
-- [Next Steps](#next-steps)
+- [Reflections](#next-steps)
 
 ## Project Overview
 
@@ -333,6 +333,8 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 - The figure above shows a sample dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
 
+---
+
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_zoom.png)
 
 - The figure above shows a zoomed dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
@@ -364,13 +366,19 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 - The figure above shows the confidence levels estimated for each delivery-hour.
   - Note: Known leakage as thresholds set from full set of progressive validation confidence values.
 
+  ---
+
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/naive_vs_sign_prob_financial_summary.png)
 
-- This figure shows the comparison of the naive vs sign probability trading results.
+- The figure above shows the comparison of the naive vs sign probability trading results.
+
+---
 
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/sign_prob_per_week_per_hour_details.png)
 
 - Consider the figure above as a kind of attribution analysis time series per hour per week.
+
+---
 
 - Observation
   - Naive is a horrible idea.
@@ -382,6 +390,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
   - Can now iterate on the dataset generation side and on the strategy backtesting side
   - Fun!
 
+---
 
 ### References
 
