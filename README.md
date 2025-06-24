@@ -320,12 +320,16 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ## Backtesting Experiments
 
+---
+
 ## Reflections
 
 What I would do differently
 - Not too much!
   - "Respect the data" means get hands on with it, ask a lot of questions, generate visualizations
-  - You could argue why not jump directly to one of the major Data Science platforms for that?  With a Co-Pilot it is astounding how quickly one can generate and customize quite complex plots!
+  - "Hypothesis driven" means actively anticipate and test the results of each and every experiment and plot
+  - You could argue why not jump directly to one of the major Data Science platforms for that?
+    - With a Co-Pilot it is astounding how quickly one can generate and customize quite complex plots!
 - Scaling.  ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect it to operate on a single settlement point and use an external method to scale to the full range.
 
 ---
