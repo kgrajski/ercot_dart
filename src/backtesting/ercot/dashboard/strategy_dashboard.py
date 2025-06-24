@@ -345,6 +345,9 @@ def create_hours_overlay_dashboard(
     # SINGLE SOURCE OF TRUTH: Create analytics engine
     analytics = create_analytics_engine(strategy_results)
 
+    # Get strategy name for subtitle
+    strategy_name = list(strategy_results.keys())[0] if strategy_results else "Unknown"
+
     # Create 3x1 subplot layout (3 rows, 1 column for better use of horizontal space)
     fig = make_subplots(
         rows=3,
@@ -363,12 +366,12 @@ def create_hours_overlay_dashboard(
     )
 
     # Process each strategy (though typically just one for this view)
-    for strategy_name, results in strategy_results.items():
+    for strategy_name_loop, results in strategy_results.items():
         if not results or not results["trades"]:
             continue
 
         # GET ALL HOURS FROM SINGLE SOURCE OF TRUTH
-        hourly_summary = analytics.get_all_hours_summary(strategy_name)
+        hourly_summary = analytics.get_all_hours_summary(strategy_name_loop)
         available_hours = sorted(hourly_summary["hour"].tolist())
 
         # Color scheme: use different colors for different hours
@@ -377,7 +380,7 @@ def create_hours_overlay_dashboard(
 
             # Plot 1: Cumulative Returns by Hour - USING SINGLE SOURCE OF TRUTH
             cumulative_data = analytics.get_cumulative_returns_by_hour(
-                strategy_name, hour
+                strategy_name_loop, hour
             )
 
             if not cumulative_data.empty:
@@ -398,7 +401,7 @@ def create_hours_overlay_dashboard(
 
             # Plot 2: Weekly Performance by Hour - USING SINGLE SOURCE OF TRUTH
             weekly_performance = analytics.get_weekly_performance_by_hour(
-                strategy_name, hour
+                strategy_name_loop, hour
             )
 
             if not weekly_performance.empty:
@@ -423,7 +426,9 @@ def create_hours_overlay_dashboard(
                 )
 
             # Plot 3: Prediction Accuracy by Hour - USING SINGLE SOURCE OF TRUTH
-            weekly_accuracy = analytics.get_weekly_accuracy_by_hour(strategy_name, hour)
+            weekly_accuracy = analytics.get_weekly_accuracy_by_hour(
+                strategy_name_loop, hour
+            )
 
             if not weekly_accuracy.empty:
                 fig.add_trace(
@@ -442,9 +447,16 @@ def create_hours_overlay_dashboard(
                     col=1,
                 )
 
+    # Create title with strategy subtitle
+    main_title = f"ERCOT Strategy Hours Overlay: All Hours - {settlement_point}"
+    subtitle = f"Trading Strategy: {strategy_name.upper()}"
+    full_title = (
+        f"{main_title}<br><span style='font-size: 16px;'><b>{subtitle}</b></span>"
+    )
+
     # Update layout with professional styling
     layout = get_professional_layout(
-        title=f"ERCOT Strategy Hours Overlay: All Hours - {settlement_point}",
+        title=full_title,
         height=1000,  # Increased height for 3-row layout
         showlegend=True,
         legend_position="upper_right",

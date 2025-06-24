@@ -105,8 +105,7 @@ def create_financial_dashboard(
         hourly_stats_export["strategy"] = strategy_name_loop
         summary_data.append(hourly_stats_export)
 
-        # Get strategy color and performance metrics
-        strategy_color = strategy_colors[strategy_name_loop]
+        # Get performance metrics for subtitle
         performance_metrics = results.get("performance_metrics", {})
         total_return_pct = performance_metrics.get("total_return_pct", 0)
         final_capital = performance_metrics.get("final_capital", 0)
@@ -116,13 +115,13 @@ def create_financial_dashboard(
             f"{strategy_name_loop.upper()}: {total_return_pct:+.2f}% return (${final_capital:,.0f} final capital)"
         )
 
-        # Plot 1: Contribution to Cumulative Returns by Hour (no legend)
+        # Plot 1: Contribution to Cumulative Returns by Hour (blue color)
         fig.add_trace(
             go.Bar(
                 x=hourly_stats["hour"],
                 y=hourly_stats["total_pnl"],
                 name=f"{strategy_name_loop.upper()}",
-                marker_color=strategy_color,
+                marker_color=strategy_colors[strategy_name_loop],
                 opacity=0.7,
                 showlegend=False,  # No legend - performance shown in subtitle
                 hovertemplate="<b>Hour %{x}</b><br>P&L Contribution: $%{y:.2f}<extra></extra>",
@@ -132,13 +131,13 @@ def create_financial_dashboard(
             col=1,
         )
 
-        # Plot 2: Win Rate by Hour (same color, no legend)
+        # Plot 2: Win Rate by Hour (green color)
         fig.add_trace(
             go.Bar(
                 x=hourly_stats["hour"],
                 y=hourly_stats["win_rate_pct"],
                 name=f"{strategy_name_loop} Win Rate",
-                marker_color=strategy_color,
+                marker_color=strategy_colors[strategy_name_loop],
                 opacity=0.7,
                 showlegend=False,
                 hovertemplate="<b>Hour %{x}</b><br>Win Rate: %{y:.1f}%<extra></extra>",
@@ -148,13 +147,13 @@ def create_financial_dashboard(
             col=2,
         )
 
-        # Plot 3: Sharpe Ratio by Hour (same color, no legend)
+        # Plot 3: Sharpe Ratio by Hour (orange color)
         fig.add_trace(
             go.Bar(
                 x=hourly_stats["hour"],
                 y=hourly_stats["sharpe_ratio"],
                 name=f"{strategy_name_loop} Sharpe",
-                marker_color=strategy_color,
+                marker_color=strategy_colors[strategy_name_loop],
                 opacity=0.7,
                 showlegend=False,
                 hovertemplate="<b>Hour %{x}</b><br>Sharpe Ratio: %{y:.3f}<extra></extra>",
@@ -164,13 +163,13 @@ def create_financial_dashboard(
             col=1,
         )
 
-        # Plot 4: Total Trades by Hour (same color, no legend)
+        # Plot 4: Total Trades by Hour (purple color)
         fig.add_trace(
             go.Bar(
                 x=hourly_stats["hour"],
                 y=hourly_stats["total_trades"],
                 name=f"{strategy_name_loop} Trades",
-                marker_color=strategy_color,
+                marker_color=strategy_colors[strategy_name_loop],
                 opacity=0.7,
                 showlegend=False,
                 hovertemplate="<b>Hour %{x}</b><br>Total Trades: %{y}<extra></extra>",

@@ -6,7 +6,7 @@
 - [Independent Variables and EDA](#independent-variables-and-eda)
 - [Modeling Experiments](#modeling-experiments)
 - [Backtesting Experiments](#backtesting-experiments)
-- [Next Steps](#next-steps))
+- [Next Steps](#next-steps)
 
 ## Project Overview
 
@@ -43,6 +43,8 @@ Objectives of this project are to:
   - Containerize (Docker)
   - Productization (SageMaker?  DataBricks?)
   - Agent Integration (LangChain, LangGraph)
+
+The gory details on individual data and individual modeling experiments can be found in the /config directory.
 
 ## Dependent Variable
 
@@ -310,15 +312,85 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 ---
 
 
-## Modeling Experiments
+## Data and Modeling Experiments
+
+- Executied three introductory experiments involving different combinations of data sets and modeling methods
+
+### DART Price Data Only (Exp0)
+- Explored the hypothesis that all the information that is needed for DART forecasting is already embedded in the DART price historical data.
+- Estimated 24 delivery hour-specific models, visualized results in a dashboard, and recited the usual statistics, including MAE, RMSE, MAPE, sMAPE, rMAE, etc.  Much of the EDA above arose from this experiment.
+- Did not dwell too long on this hypothesis.  The numerics and visuals (predicted vs actual) quite poor!
 
 
-- Availability of regime classification as a supplement to raw regression
-- Opportunities for integrating time-aware and probability-based models
+### DART Price Data and Forecast Data (Load, Solar Power Generation, Wind Power Generation) (Exp1)
+- Explored the hypothesis that DART lagged price, DART rolling price, load forecast, wind power generation forecast, solar power generation, and positionally encoded time variables could improve results.
+- Estimated 24 delivery hour-specific models, visualized results in a dashboard, and recited the usual statistics, including MAE, RMSE, MAPE, sMAPE, rMAE, etc.
+- Compared linear, lasso, ridge, and xgboost regression.
+- Presented results in a dashboard.  Below is an overview and zoomed version.
+  - .png shown here, but there the interactive html dashboard are a great resource to probe the data.
+
+![DART Price Prediction Overview](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_full.png)
+
+![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_zoom.png)
+
+- The quantitative metrics still signaled quite poor results.  Visual inspection, such as of the zoomed results, suggest that even with a plain vanilla xgboost model, the "direction" of the forecast seemed not entirely unreasonable.
+- Hypothesis: a simple DART sign classifier can form the basis for a trading strategy.
+  - One can do so much more here.  Set thresholds bimodally.  Use unsupervised methods (see above) to reflect natural DART clusters, and so on.
+  - Here, we start simple.  MVP-style and then iterate.
+
+### DART Price Sign (Positive or Negative) Forecasting as a Trading Signal (Exp2 Data; Exp0 Model)
+- The workbench was upgraded to do progressive validation.
+  - Estimate 24 delivery-hour specific classification models with 2024 data.
+  - For each week X of 2025 (through first week June)
+    - Generate predictions for week X
+    - Retrain with all 2024 and 2025 data through week X
+
+- Two strategies were implemented:
+  - Naive.  Just trade on the model prediction.
+  - Sign-probability.  Set hour-specific confidence thresholds so that only top 5% (variable) of trades done.
+  - Betting parameters: $10K initial capital; 5% bet size transaction cost; even-money payout; bet size $1.
+    - MVP simplicity to start!
+
+- Here are a couple of the dashboards (poorly captured as .png) to show the directions am heading.
+
+![DART Price Prediction Overview](reports/figures/initial_dart_houston/sign_prob_thresh_per_hour.png)
+
+- This figure shows the confidence levels estimated for each delivery-hour.
+  - Note: Known leakage as thresholds set from full set of progressive validation confidence values.
+
+![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/naive_vs_sign_prob_financial_summary.png)
+
+- This figure shows the comparison of the naive vs sign probability trading results.
+
+![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/sign_prob_per_week_per_hour_details.png)
+
+- Consider this figure as a kind of attribution analysis time series per hour per week.
+
+- Observation
+  - Naive is a horrible idea.
+  - Sign_probability is moving in the right direction.
+
+- Conclusion
+  - Have the workflow working "end-to-end"
+  - See workflow/01-kag..., workflow/02-kag...,
+  - Can now iterate on the dataset generation side and on the strategy backtesting side
+  - Fun!
+
+
+### References
+
+- I found these references to be quite useful recent additions to the literature - even though I haven't (yet) progressed to neural networks just yet - I want to stay close to the data!!
+  - Xu, J. and Baldick, R.  (2019).  Day-Ahead price forecasting in ERCOT market using neural network approaches.  https://doi.org/10.1145/3307772.3331024
+  - Lago, et al. (2021).  Forecasting day-ahead electricity prices: A review of state-of-the-art algorithms, best practices and an open-access benchmark.  https://doi.org/10.1016/j.apenergy.2021.116983
+  - Wang, et al. (2024). Deep Learning-Based Electricity Price Forecast for Virtual Bidding in Wholesale Electricity Markets.  https://doi.org/10.48550/arXiv.2412.00062
+  - 
 
 ---
 
 ## Backtesting Experiments
+
+- Availability of regime classification as a supplement to raw regression
+- Opportunities for integrating time-aware and probability-based models
 
 ---
 
@@ -330,7 +402,9 @@ What I would do differently
   - "Hypothesis driven" means actively anticipate and test the results of each and every experiment and plot
   - You could argue why not jump directly to one of the major Data Science platforms for that?
     - With a Co-Pilot it is astounding how quickly one can generate and customize quite complex plots!
-- Scaling.  ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect it to operate on a single settlement point and use an external method to scale to the full range.
+  - Many studies focus on the end-result - which nearly inevitably end with "hot" results.  Here, I wanted to share the step-by-step journey to include the false alarms amongst the hints of insight.
+- Architect for future scaling.
+  - ERCOT has 100s of settlement points.  I embedded handling multiple settlement points in the workbench itself.  So, lots of "outer loops".  A better idea may have been to perfect the workbench to operate on a single settlement point and use an external method to scale to the full range.
 
 ---
 
