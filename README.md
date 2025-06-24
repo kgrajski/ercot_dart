@@ -331,7 +331,11 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ![DART Price Prediction Overview](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_full.png)
 
+- The figure above shows a sample dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
+
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_zoom.png)
+
+- The figure above shows a zoomed dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
 
 - The quantitative metrics still signaled quite poor results.  Visual inspection, such as of the zoomed results, suggest that even with a plain vanilla xgboost model, the "direction" of the forecast seemed not entirely unreasonable.
 - Hypothesis: a simple DART sign classifier can form the basis for a trading strategy.
@@ -357,7 +361,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ![DART Price Prediction Overview](reports/figures/initial_dart_houston/sign_prob_thresh_per_hour.png)
 
-- This figure shows the confidence levels estimated for each delivery-hour.
+- The figure above shows the confidence levels estimated for each delivery-hour.
   - Note: Known leakage as thresholds set from full set of progressive validation confidence values.
 
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/naive_vs_sign_prob_financial_summary.png)
@@ -366,7 +370,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/sign_prob_per_week_per_hour_details.png)
 
-- Consider this figure as a kind of attribution analysis time series per hour per week.
+- Consider the figure above as a kind of attribution analysis time series per hour per week.
 
 - Observation
   - Naive is a horrible idea.
