@@ -395,7 +395,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
   - Have the workflow working "end-to-end"
   - See workflow/01-kag..., workflow/02-kag...,
   - Can now iterate on the dataset generation side and on the strategy backtesting side
-  - This work has been deeply educational and has met the objective of .
+  - This work has been deeply educational and has met objectives.
 
 ---
 
