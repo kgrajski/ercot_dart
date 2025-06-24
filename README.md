@@ -401,11 +401,13 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ## References
 
-- I found these references to be quite useful recent additions to the literature - even though I haven't (yet) progressed to neural networks just yet - I want to stay close to the data!!
+- I found these references to be quite useful recent additions to the literature
+- Note: I recognized but haven't (yet) progressed to neural networks just yet; staying close to the data.
+  - Breiman, L. (2001).  Statistical modeling: The two cultures.  https://doi.org/10.1214/ss/1009213726
   - Xu, J. and Baldick, R.  (2019).  Day-Ahead price forecasting in ERCOT market using neural network approaches.  https://doi.org/10.1145/3307772.3331024
   - Lago, et al. (2021).  Forecasting day-ahead electricity prices: A review of state-of-the-art algorithms, best practices and an open-access benchmark.  https://doi.org/10.1016/j.apenergy.2021.116983
-  - Wang, et al. (2024). Deep Learning-Based Electricity Price Forecast for Virtual Bidding in Wholesale Electricity Markets.  https://doi.org/10.48550/arXiv.2412.00062
-  - Kazempour, Jalal.  (2025).  Technical University of Denmark Course: Renewables in Electricity Markets.  Here is a link to the Lecture 0: https://www.youtube.com/watch?v=QmdBpKUP4Ek
+  - Wang, et al. (2024). Deep learning-based electricity price forecast for virtual bidding in wholesale electricity markets.  https://doi.org/10.48550/arXiv.2412.00062
+  - Kazempour, Jalal.  (2025).  Technical University of Denmark Course: Renewables in electricity markets.  Here is a link to the Lecture 0: https://www.youtube.com/watch?v=QmdBpKUP4Ek
 
 ---
 
