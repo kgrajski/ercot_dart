@@ -346,8 +346,7 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ## Backtesting Experiments
 
-### DART Price Sign (Positive or Negative) Forecasting as a Trading Signal
-(Exp2 Data; Exp0 Model)
+### DART Price Sign (Pos vs Neg) Forecasting as a Trading Signal (Exp2 Data; Exp0 Model)
 
 - The workbench was upgraded to do progressive validation.
   - Estimate 24 delivery-hour specific classification models with 2024 data.
