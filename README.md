@@ -331,13 +331,13 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 ![DART Price Prediction Overview](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_full.png)
 
-- The figure above shows a sample dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
+- The figure above shows a dashboard when train on 2024 and validate on 2025 (through June 4, 2025).
 
 ---
 
 ![DART Price Prediction Zoomed](reports/figures/initial_dart_houston/exp1_xgboost_dashboard_zoom.png)
 
-- The figure above shows a zoomed dashboard when we train on 2024 and validate on 2025 (through June 4, 2025).
+- The figure above shows a zoomed dashboard when train on 2024 and validate on 2025 (through June 4, 2025).
 
 - The quantitative metrics still signaled quite poor results.  Visual inspection, such as of the zoomed results, suggest that even with a plain vanilla xgboost model, the "direction" of the forecast seemed not entirely unreasonable.
 - Hypothesis: a simple DART sign classifier can form the basis for a trading strategy.
