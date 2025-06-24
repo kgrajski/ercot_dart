@@ -413,7 +413,8 @@ Closer look at cross-correlation matrix of DART SLT target variable and wind pow
 
 What I would do differently
 - Not too much!
-  - The experiments used data and forecasted to respect ERCOT DAM and RT operations - no leakage no cheating
+  - The experiments used data and forecasted reflecting and respecting ERCOT DAM and RT operations
+    - No leakage no cheating
   - "Respect the data" means get hands on with it, ask a lot of questions, generate visualizations
   - "Hypothesis driven" means actively anticipate and test the results of each and every experiment and plot
   - You could argue why not jump directly to one of the major Data Science platforms for that?
@@ -424,18 +425,19 @@ What I would do differently
 
 What I might do next
 - Modeling
-  - Switch from delivery hour-specific models to full sequence-to-sequence (seq2seg) modeling
-  - We have a nice baseline to assess improvements rather than just chasing latest hot methods
+  - Switch from delivery hour-specific models to full sequence-to-sequence (seq2seg) modeling, e.g., Transformers
+  - We have a nice baseline to assess improvements rather than just chasing latest hot method(s)
 - Data
   - Incorporate additional features
+    - With ERCOT it is "kid in a candy store" of data
   - Explore additional settlement points
-    - We looked at Houston LZ in some depth
-    - How similar or different are other LZ? Hubs? Buses?  How would be classify them?
+    - We looked at Houston LZ
+    - How similar or different are other LZ? Hubs? Buses?  How would we measure that?
 - Trading
-  - Maybe not every Hub, LZ, and Bus are equally "interesting" for trading
-  - But here I would welcome to collab with domain experts
+  - Maybe not every Hub, LZ, and Bus is equally "interesting" for trading
+  - Happy to consider a collab with domain experts
     - What are your pain points?
-    - How can solid Data Science (and AI judiciously applied) help?
+    - Where can solid Data Science (and AI judiciously applied) help?
 
 ---
 
